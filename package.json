@@ -1,6 +1,6 @@
 {
     "name": "umwelt-ts",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Typed objects in Postgres. Declare Types as Effect Schema; storage, validation, references, and migrations follow.",
     "keywords": [
         "effect",
