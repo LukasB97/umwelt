@@ -1,5 +1,5 @@
 {
-    "name": "@lukas.b97/umwelt",
+    "name": "umwelt-ts",
     "version": "0.1.0",
     "description": "Typed objects in Postgres. Declare Types as Effect Schema; storage, validation, references, and migrations follow.",
     "keywords": [

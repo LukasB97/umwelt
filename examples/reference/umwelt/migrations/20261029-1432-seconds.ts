@@ -1,5 +1,5 @@
 /** Written by `umwelt create`: forms stay as written. */
-import { Umwelt } from "@lukas.b97/umwelt"
+import { Umwelt } from "umwelt-ts"
 
 export default Umwelt.migration({
     id: "20261029-1432-seconds",

@@ -1,6 +1,6 @@
 /** The only hand-written description of the Model: current Types, and the Client made from them. */
 import { Schema } from "effect"
-import { Umwelt } from "@lukas.b97/umwelt"
+import { Umwelt } from "umwelt-ts"
 import migrations from "./migrations/index.ts"
 
 export const Track = Umwelt.type(

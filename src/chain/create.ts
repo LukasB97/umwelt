@@ -5,7 +5,7 @@ import { changesOf } from "./chain.ts"
 import { kindOf } from "./classify.ts"
 
 /** Where a Client keeps the Model it was made from, for `umwelt create`; shared across copies of the library. */
-export const modelKey: unique symbol = Symbol.for("@lukas.b97/umwelt/model")
+export const modelKey: unique symbol = Symbol.for("umwelt-ts/model")
 
 export const isClient = (value: unknown): value is { readonly [modelKey]: ResolvedModel } =>
     typeof value === "object" && value !== null && modelKey in value
@@ -84,7 +84,7 @@ const stepText = ([type, step]: readonly [string, Migration["types"][string]]) =
 export const migrationFile = (migration: Migration) =>
     [
         "/** Written by `umwelt create`: forms stay as written. */",
-        'import { Umwelt } from "@lukas.b97/umwelt"',
+        'import { Umwelt } from "umwelt-ts"',
         "",
         "export default Umwelt.migration({",
         `    id: ${JSON.stringify(migration.id)},`,

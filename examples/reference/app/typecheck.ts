@@ -10,7 +10,7 @@ import {
     type QueryObject,
     type SortableKeys,
     type WriteResult
-} from "@lukas.b97/umwelt"
+} from "umwelt-ts"
 import { Track, Play, type Playlist, umwelt } from "../umwelt/model"
 import { type bySlug, type lastPlayTime, type withRecentPlays } from "./tracks"
 import { type logPlay, type PlayId } from "./plays"

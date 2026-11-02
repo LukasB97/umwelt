@@ -3,7 +3,7 @@
  * The executor is whatever runs SQL: a `pg` pool, client, or transaction.
  */
 import { Schema } from "effect"
-import { ReferencedByHost, type DeleteResult } from "@lukas.b97/umwelt"
+import { ReferencedByHost, type DeleteResult } from "umwelt-ts"
 import { Track, umwelt } from "../umwelt/model"
 
 /** Shape of a `pg` client, declared here so the reference needs no dependency. */

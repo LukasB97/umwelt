@@ -13,7 +13,7 @@
         "skipLibCheck": true,
         "allowImportingTsExtensions": true,
         "noEmit": true,
-        "paths": { "@lukas.b97/umwelt": ["./src/index.ts"] }
+        "paths": { "umwelt-ts": ["./src/index.ts"] }
     },
     "include": ["src", "test", "vitest.config.ts"]
 }

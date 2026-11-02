@@ -25,7 +25,7 @@ const files = {
     "package.json": JSON.stringify({ private: true, type: "module" }),
     /** Plain JavaScript: Node loads the package without type stripping. */
     "main.js": [
-        'import { Umwelt } from "@lukas.b97/umwelt"',
+        'import { Umwelt } from "umwelt-ts"',
         'import effect from "effect/package.json" with { type: "json" }',
         "",
         'console.log(`plain node imports Umwelt (${Object.keys(Umwelt).join(", ")}) on effect ${effect.version}`)',
@@ -44,7 +44,7 @@ const files = {
     /** Checked against the shipped declarations; the expected error proves the types are not `any`. */
     "consumer.ts": [
         'import { Schema } from "effect"',
-        'import { Umwelt, type ObjectId } from "@lukas.b97/umwelt"',
+        'import { Umwelt, type ObjectId } from "umwelt-ts"',
         "",
         "const Track = Umwelt.type(",
         '    "Track",',
@@ -61,7 +61,7 @@ const files = {
     ].join("\n"),
     "umwelt/model.ts": [
         'import { Schema } from "effect"',
-        'import { Umwelt } from "@lukas.b97/umwelt"',
+        'import { Umwelt } from "umwelt-ts"',
         'import migrations from "./migrations/index.ts"',
         "",
         'export const Note = Umwelt.type("Note", { text: Schema.String })',

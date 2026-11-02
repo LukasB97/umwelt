@@ -22,9 +22,9 @@ import { migrationHash } from "../src/migration.ts"
 const root = fileURLToPath(new URL("..", import.meta.url))
 const cli = join(root, "src", "chain", "cli.ts")
 
-/** Host project: `effect` links to this repository's copy, `@lukas.b97/umwelt` forwards to this repository's source. */
+/** Host project: `effect` links to this repository's copy, `umwelt-ts` forwards to this repository's source. */
 const project = mkdtempSync(join(tmpdir(), "umwelt-create-"))
-const core = join(project, "node_modules", "@lukas.b97", "umwelt")
+const core = join(project, "node_modules", "umwelt-ts")
 mkdirSync(core, { recursive: true })
 writeFileSync(join(core, "package.json"), JSON.stringify({ type: "module", exports: "./index.js" }))
 writeFileSync(
@@ -42,7 +42,7 @@ const model = (fields: string) =>
         join(project, "umwelt", "model.ts"),
         [
             'import { Schema } from "effect"',
-            'import { Umwelt } from "@lukas.b97/umwelt"',
+            'import { Umwelt } from "umwelt-ts"',
             'import migrations from "./migrations/index.ts"',
             "",
             `export const Track = Umwelt.type("Track", { slug: Schema.String, ${fields} }, { uniqueKey: Schema.Struct({ slug: Schema.String }) })`,

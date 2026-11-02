@@ -1,6 +1,6 @@
 /** Play has no unique key: found by `where`, addressed by Object ID, like documents in a collection. */
 import { Effect } from "effect"
-import type { ObjectId } from "@lukas.b97/umwelt"
+import type { ObjectId } from "umwelt-ts"
 import { type Play, umwelt } from "../umwelt/model"
 
 export type PlayId = ObjectId<typeof Play>

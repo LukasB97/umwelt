@@ -7,7 +7,7 @@
  *   );
  */
 import { Effect, Schema } from "effect"
-import { Umwelt, type DeleteResult } from "@lukas.b97/umwelt"
+import { Umwelt, type DeleteResult } from "umwelt-ts"
 import { Track, umwelt } from "../umwelt/model"
 
 export const referencedTable = Umwelt.objectTable.name

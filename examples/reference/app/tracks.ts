@@ -1,6 +1,6 @@
 /** Track has a unique key: Identity `{ slug }` addresses it. A Type is an Effect Schema. */
 import { Effect, Schema } from "effect"
-import { Umwelt } from "@lukas.b97/umwelt"
+import { Umwelt } from "umwelt-ts"
 import { Track, Play, Playlist, umwelt } from "../umwelt/model"
 
 // ---- the Type as schema

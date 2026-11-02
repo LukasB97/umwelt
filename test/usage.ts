@@ -31,7 +31,7 @@ if (model === undefined) throw new Error("CONTEXT/client.md has no example Model
 
 const prelude = [
     'import { Effect, Schema } from "effect"',
-    'import { Umwelt, type Migration, type ObjectId } from "@lukas.b97/umwelt"',
+    'import { Umwelt, type Migration, type ObjectId } from "umwelt-ts"',
     "",
     "declare const migrations: readonly Migration[]",
     model

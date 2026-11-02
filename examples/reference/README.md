@@ -1,6 +1,6 @@
 # Reference app
 
-Small host application on Umwelt. It compiles against `src` through the `@lukas.b97/umwelt` path in tsconfig; `test/reference.test.ts` deploys it and runs every function against Postgres.
+Small host application on Umwelt. It compiles against `src` through the `umwelt-ts` path in tsconfig; `test/reference.test.ts` deploys it and runs every function against Postgres.
 It shows the whole surface in one place: defining Types, the migration chain, deploying, and using the Client.
 
 ```

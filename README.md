@@ -11,14 +11,14 @@ Most applications describe their data in several places: the database schema, th
 Umwelt needs Node 24 or newer and Postgres.
 
 ```sh
-npm install @lukas.b97/umwelt effect pg
+npm install umwelt-ts effect pg
 ```
 
 Declare your Types in `umwelt/model.ts` and export the client made from them:
 
 ```ts
 import { Schema } from "effect"
-import { Umwelt } from "@lukas.b97/umwelt"
+import { Umwelt } from "umwelt-ts"
 import migrations from "./migrations/index.ts"
 
 export const Track = Umwelt.type(
