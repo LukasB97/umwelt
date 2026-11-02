@@ -177,6 +177,8 @@ pnpm test
 
 Tests need Docker; they start Postgres for the run. Behavior changes start in the specification: edit `.CONTEXT.source/`, render it with `pnpm context`, then change code. A pull request passes `pnpm check` and `pnpm test`.
 
+A release is a version tag: `npm version minor` bumps `package.json`, commits, and tags; `git push --follow-tags` lets CI publish the tag to npm.
+
 ## License
 
 [MIT](LICENSE)

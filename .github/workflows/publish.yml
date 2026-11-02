@@ -1,0 +1,27 @@
+name: Publish
+
+# A tag `vX.Y.Z` on a commit whose package.json has that version publishes it to npm.
+# Authentication is npm trusted publishing: the job's OIDC token, no npm token and no one-time password.
+on:
+    push:
+        tags: ["v*"]
+
+jobs:
+    publish:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            id-token: write
+        steps:
+            - uses: actions/checkout@v7
+            - uses: pnpm/action-setup@v6
+            - uses: actions/setup-node@v7
+              with:
+                  node-version-file: .node-version
+                  cache: pnpm
+            - run: pnpm install --frozen-lockfile
+            - name: Tag matches package.json version
+              run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+            - run: pnpm check
+            - run: pnpm test
+            - run: npm publish
