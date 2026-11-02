@@ -1,0 +1,10 @@
+id: no-unstable-effect-import
+language: TypeScript
+severity: error
+message: Use the public Effect v4 module exports.
+files:
+    - src/**
+    - examples/**
+rule:
+    kind: string
+    regex: '^[''"]effect/unstable/'

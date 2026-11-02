@@ -1,0 +1,146 @@
+{
+    "$schema": "./node_modules/@effect/tsgo/oxlint-schema.json",
+    "extends": ["./node_modules/@effect/tsgo/oxlint-presets/recommended.json"],
+    "categories": {
+        "correctness": "error"
+    },
+    "plugins": ["typescript", "import", "effecttsgo"],
+    "options": {
+        "typeAware": true
+    },
+    "rules": {
+        "effecttsgo/effect-in-failure": "error",
+        "effecttsgo/lazy-promise-in-effect-sync": "error",
+        "effecttsgo/promise-in-effect-success": "error",
+        "effecttsgo/return-effect-in-gen": "error",
+        "effecttsgo/run-effect-inside-effect": "error",
+        "effecttsgo/global-random-in-effect": "error",
+        "effecttsgo/global-timers-in-effect": "error",
+        "effecttsgo/crypto-random-uuid-in-effect": "error",
+        "effecttsgo/unstable-api-usage": "off",
+        "effecttsgo/any-unknown-in-error-context": "off",
+        "effecttsgo/unsafe-effect-type-assertion": "error",
+        "typescript/no-explicit-any": "error",
+        "typescript/no-misused-promises": "error",
+        "prefer-const": "error",
+        "no-var": "error",
+        "eqeqeq": ["error", "always"],
+        "curly": ["error", "multi-or-nest", "consistent"],
+        "import/no-duplicates": [
+            "error",
+            {
+                "preferInline": true
+            }
+        ],
+        "import/no-cycle": "error",
+        "typescript/no-unsafe-assignment": "error",
+        "typescript/no-unsafe-argument": "error",
+        "typescript/no-unsafe-call": "error",
+        "typescript/no-unsafe-member-access": "error",
+        "typescript/no-unsafe-return": "error",
+        "typescript/switch-exhaustiveness-check": "error",
+        "typescript/no-unsafe-type-assertion": "error",
+        "typescript/no-non-null-assertion": "error",
+        "typescript/no-unnecessary-type-assertion": "error",
+        "typescript/no-unnecessary-condition": "error",
+        "typescript/consistent-type-imports": [
+            "error",
+            {
+                "prefer": "type-imports",
+                "fixStyle": "inline-type-imports"
+            }
+        ],
+        "typescript/consistent-type-assertions": [
+            "error",
+            {
+                "assertionStyle": "as",
+                "objectLiteralTypeAssertions": "never",
+                "arrayLiteralTypeAssertions": "never"
+            }
+        ],
+        "typescript/strict-boolean-expressions": [
+            "error",
+            {
+                "allowAny": false,
+                "allowNullableString": false,
+                "allowNullableNumber": false,
+                "allowNullableEnum": false,
+                "allowNullableBoolean": false,
+                "allowNumber": false,
+                "allowNullableObject": false,
+                "allowString": false
+            }
+        ],
+        "unicorn-js/name-replacements": [
+            "error",
+            {
+                "checkFilenames": false,
+                "checkVariables": true,
+                "checkShorthandProperties": true,
+                "checkShorthandImports": "internal",
+                "checkDefaultAndNamespaceImports": true,
+                "checkProperties": false,
+                "replacements": {
+                    "application": false,
+                    "applications": false,
+                    "config": {
+                        "configuration": true
+                    },
+                    "conf": {
+                        "configuration": true,
+                        "config": false
+                    },
+                    "cfg": {
+                        "configuration": true,
+                        "config": false
+                    },
+                    "configuration": false
+                }
+            }
+        ],
+        "no-magic-numbers": [
+            "error",
+            {
+                "enforceConst": true,
+                "ignoreTypeIndexes": true,
+                "detectObjects": false,
+                "ignoreArrayIndexes": true,
+                "ignoreDefaultValues": true,
+                "ignoreReadonlyClassProperties": true,
+                "ignoreNumericLiteralTypes": true,
+                "ignore": [-1, 0, 1],
+                "ignoreEnums": true
+            }
+        ],
+        "typescript/no-floating-promises": "error",
+        "max-depth": ["error", 3],
+        "umwelt-size/function-lines": "error",
+        "umwelt-size/function-lines-warning": "warn",
+        "umwelt-size/file-logic-lines-warning": "warn"
+    },
+    "overrides": [
+        {
+            "files": ["**/test/**/*.ts", "**/*.test.ts", "examples/**/*.ts"],
+            "rules": {
+                "no-magic-numbers": "off"
+            }
+        },
+        {
+            "files": ["examples/reference/app/typecheck.ts"],
+            "rules": {
+                "effecttsgo/floating-effect": "off",
+                "typescript/no-unsafe-call": "off",
+                "typescript/no-unsafe-assignment": "off",
+                "no-unused-expressions": "off"
+            }
+        }
+    ],
+    "ignorePatterns": ["**/node_modules/**", "**/dist/**", "**/coverage/**", "**/*.d.ts"],
+    "jsPlugins": [
+        {
+            "specifier": "eslint-plugin-unicorn",
+            "name": "unicorn-js"
+        },
+        "./tools/size-lint-plugin.mjs"
+    ]
+}

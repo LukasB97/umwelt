@@ -1,0 +1,86 @@
+{
+    "name": "@lukas.b97/umwelt",
+    "version": "0.1.0",
+    "description": "Typed objects in Postgres. Declare Types as Effect Schema; storage, validation, references, and migrations follow.",
+    "keywords": [
+        "effect",
+        "jsonb",
+        "migrations",
+        "postgres",
+        "schema",
+        "typescript"
+    ],
+    "homepage": "https://github.com/LukasB97/umwelt#readme",
+    "bugs": "https://github.com/LukasB97/umwelt/issues",
+    "license": "MIT",
+    "author": "Lukas Brückner",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/LukasB97/umwelt.git"
+    },
+    "bin": {
+        "umwelt": "dist/chain/cli.js"
+    },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE"
+    ],
+    "type": "module",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "scripts": {
+        "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
+        "prepack": "pnpm build",
+        "patch:editor": "effect-tsgo patch --oxlint",
+        "typecheck": "tsc --noEmit",
+        "typecheck:reference": "tsc -p examples/reference",
+        "typecheck:usage": "node test/usage.ts",
+        "format": "oxfmt --write src test examples tools rules package.json tsconfig.json tsconfig.build.json vitest.config.ts .oxlintrc.json .oxfmtrc.json knip.json sgconfig.yml",
+        "format:check": "oxfmt --check src test examples tools rules package.json tsconfig.json tsconfig.build.json vitest.config.ts .oxlintrc.json .oxfmtrc.json knip.json sgconfig.yml",
+        "lint": "effect-tsgo oxlint src test examples tools vitest.config.ts --type-aware",
+        "lint:structure": "ast-grep scan --config sgconfig.yml",
+        "lint:unused": "knip --tsConfig tsconfig.build.json",
+        "check": "pnpm typecheck && pnpm typecheck:reference && pnpm typecheck:usage && pnpm format:check && pnpm lint && pnpm lint:structure && pnpm lint:unused",
+        "context": "holon .CONTEXT.source .",
+        "test": "vitest run",
+        "test:package": "node test/package.ts"
+    },
+    "devDependencies": {
+        "@ast-grep/cli": "0.45.3",
+        "@effect/sql-pg": "4.1.0",
+        "@effect/tsgo": "0.63.0",
+        "@effect/vitest": "4.1.0",
+        "@types/node": "24.19.1",
+        "@types/pg": "8.23.1",
+        "effect": "4.1.0",
+        "eslint-plugin-unicorn": "77.0.0",
+        "holon-md": "0.1.1",
+        "knip": "6.39.0",
+        "oxfmt": "0.71.0",
+        "oxlint": "1.90.0",
+        "oxlint-tsgolint": "7.0.2005",
+        "pg": "8.23.1",
+        "typescript": "7.0.2",
+        "vitest": "5.0.3"
+    },
+    "peerDependencies": {
+        "effect": "~4.1.0"
+    },
+    "engines": {
+        "node": ">=24"
+    },
+    "packageManager": "pnpm@10.33.4",
+    "pnpm": {
+        "onlyBuiltDependencies": [
+            "@ast-grep/cli"
+        ]
+    }
+}

@@ -1,0 +1,8 @@
+{
+    "ignorePatterns": ["CONTEXT/**", "CONTEXT.md", ".CONTEXT.source/**", "pnpm-lock.yaml"],
+    "semi": false,
+    "singleQuote": false,
+    "printWidth": 120,
+    "tabWidth": 4,
+    "trailingComma": "none"
+}
