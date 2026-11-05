@@ -1,9 +1,11 @@
 import { describe, expect, layer } from "@effect/vitest"
 import { Deferred, Effect, Fiber, Schema } from "effect"
+import type pg from "pg"
 import { SqlClient } from "effect/sql"
 import { Umwelt } from "../src/index.ts"
-import { chainOf, extend, reset, storedOf } from "./chain-fixture.ts"
-import { TestDatabase, concurrently, lockWaits } from "./database.ts"
+import { chainOf, extend, reset, storedOf, uniqueIndexes } from "./chain-fixture.ts"
+import type { Lender } from "../src/api.ts"
+import { TestDatabase, concurrently, lockWaits, pgPool } from "./database.ts"
 
 const key = { uniqueKey: Schema.Struct({ slug: Schema.String }) }
 const TrackV1 = Umwelt.type("Track", { slug: Schema.String, duration: Schema.Finite }, key)
@@ -43,6 +45,84 @@ const nightDrive = Effect.gen(function* () {
     yield* plays.deploy()
     return (yield* plays.Track.write({ data: { slug: "night-drive" } })).id
 })
+
+const itemFields = { code: Schema.String, slug: Schema.String, number: Schema.Int }
+const itemKey = Schema.Struct({ code: Schema.String })
+const bySlug = Umwelt.type("Item", itemFields, { uniqueKey: itemKey, unique: [{ slug: true }] })
+const bySlugAndNumber = Umwelt.type("Item", itemFields, { uniqueKey: itemKey, unique: [{ slug: true, number: true }] })
+const items = chainOf([bySlug], [bySlugAndNumber], [bySlug])
+/** Declares `slug` unique. */
+const slugs = Umwelt.make([bySlug], { migrations: items.slice(0, 1) })
+/** Declares `slug` and `number` unique together: its Deploy drops the `slug` constraint. */
+const pairs = Umwelt.make([bySlugAndNumber], { migrations: items.slice(0, 2) })
+/** Declares `slug` unique again. */
+const slugsAgain = Umwelt.make([bySlug], { migrations: items })
+
+const item = (code: string, slug: string, number: number) => ({ data: { code, slug, number } })
+
+/** A host transaction on its own connection that ran `before`; `proceed` runs `after` in it, commits, and gives its result. */
+const host = <A, B, E1, E2>(
+    before: Effect.Effect<A, E1, SqlClient.SqlClient>,
+    after: Effect.Effect<B, E2, SqlClient.SqlClient>
+) =>
+    Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient
+        const ready = yield* Deferred.make<void>()
+        const go = yield* Deferred.make<void>()
+        const transaction = yield* Effect.forkChild(
+            sql.withTransaction(
+                Effect.gen(function* () {
+                    yield* before
+                    yield* Deferred.succeed(ready, undefined)
+                    yield* Deferred.await(go)
+                    return yield* after
+                })
+            )
+        )
+        yield* Deferred.await(ready)
+        return { proceed: Effect.andThen(Deferred.succeed(go, undefined), Fiber.join(transaction)) }
+    })
+
+/** A Promise and the function settling it. */
+const signal = () => {
+    const settle = { resolve: () => {} }
+    const promise = new Promise<void>((resolve) => {
+        settle.resolve = resolve
+    })
+    return { promise, resolve: () => settle.resolve() }
+}
+
+/** The pool as Lender, every statement after the first `commit` held until `resume`: a Deploy paused right after its commit. */
+const pausedAfterCommit = (pool: pg.Pool) => {
+    const paused = signal()
+    const resumed = signal()
+    const state = { committed: false }
+    const statement = async (run: () => Promise<{ rows: unknown[] }>) => {
+        if (state.committed) {
+            paused.resolve()
+            await resumed.promise
+        }
+        return run()
+    }
+    const lender: Lender = {
+        get totalCount() {
+            return pool.totalCount
+        },
+        query: (sql, parameters = []) => statement(() => pool.query(sql, [...parameters])),
+        connect: async () => {
+            const client = await pool.connect()
+            return {
+                query: async (sql, parameters = []) => {
+                    const result = await statement(() => client.query(sql, [...parameters]))
+                    if (sql === "commit") state.committed = true
+                    return result
+                },
+                release: () => client.release()
+            }
+        }
+    }
+    return { lender, paused: Effect.promise(() => paused.promise), resume: Effect.sync(() => resumed.resolve()) }
+}
 
 describe("concurrency", () => {
     layer(TestDatabase("concurrency"))((it) => {
@@ -238,6 +318,118 @@ describe("concurrency", () => {
                     })
                     expect((yield* storedOf("Play")).objects).toEqual([])
                 })
+        )
+
+        it.effect("concurrent identical upserts of one Identity beside a unique constraint all succeed", () =>
+            Effect.gen(function* () {
+                yield* reset
+                yield* slugs.deploy()
+                yield* Effect.forEach(
+                    Array.from({ length: 5 }, (_, round) => round),
+                    (round) =>
+                        Effect.gen(function* () {
+                            const writes = Array.from({ length: 20 }, () =>
+                                slugs.Item.write(item(`c${round}`, `s${round}`, round))
+                            )
+                            const applied = yield* Effect.all(writes, { concurrency: "unbounded" })
+                            expect(applied.map(({ outcome }) => outcome).toSorted()).toEqual([
+                                "created",
+                                ...Array.from({ length: 19 }, () => "unchanged")
+                            ])
+                        }),
+                    { discard: true }
+                )
+                expect((yield* slugs.Item.query({})).objects).toHaveLength(5)
+            })
+        )
+
+        it.effect("a Deploy paused after its commit drops no constraint a newer Deploy declares", () =>
+            Effect.gen(function* () {
+                yield* reset
+                yield* slugs.deploy()
+                const { lender, paused, resume } = pausedAfterCommit(yield* pgPool("concurrency"))
+                const older = yield* Effect.forkChild(Effect.promise(() => slugs.promise(lender).deploy()))
+                yield* paused
+                expect(yield* pairs.deploy()).toEqual({ applied: [items[1]?.id] })
+                const [pairIndex] = yield* uniqueIndexes
+                yield* resume
+                expect(yield* Fiber.join(older)).toEqual({ applied: [] })
+                expect(yield* uniqueIndexes).toEqual([pairIndex])
+                yield* pairs.Item.write(item("a", "x", 1))
+                expect(yield* Effect.flip(pairs.Item.write(item("b", "x", 1)))).toMatchObject({
+                    _tag: "UniqueViolation",
+                    fields: { slug: true, number: true }
+                })
+            })
+        )
+
+        it.effect(
+            "a newer Deploy in the host transaction a drop waits for: the older Deploy then drops nothing it declares",
+            () =>
+                Effect.gen(function* () {
+                    yield* reset
+                    yield* slugs.deploy()
+                    const [slugIndex] = yield* uniqueIndexes
+                    const newer = yield* host(slugs.Item.query({}), slugsAgain.deploy())
+                    const older = yield* Effect.forkChild(pairs.deploy())
+                    // the older Deploy has committed; its drop waits for the host's read, the newer Deploy passes it
+                    yield* lockWaits(1)
+                    expect(yield* newer.proceed).toEqual({ applied: [items[2]?.id] })
+                    expect(yield* Fiber.join(older)).toEqual({ applied: [items[1]?.id] })
+                    expect(yield* uniqueIndexes).toContain(slugIndex)
+                    yield* slugsAgain.deploy()
+                    expect(yield* uniqueIndexes).toEqual([slugIndex])
+                    yield* slugsAgain.Item.write(item("a", "x", 1))
+                    expect(yield* Effect.flip(slugsAgain.Item.write(item("b", "x", 2)))).toMatchObject({
+                        _tag: "UniqueViolation",
+                        fields: { slug: true }
+                    })
+                })
+        )
+
+        it.effect(
+            "a host's read, a Deploy's drop waiting for it, a second Deploy behind that, the host's write: all finish",
+            () =>
+                Effect.gen(function* () {
+                    yield* reset
+                    yield* slugs.deploy()
+                    const write = yield* host(slugs.Item.query({}), pairs.Item.write(item("a", "x", 1)))
+                    const first = yield* Effect.forkChild(pairs.deploy())
+                    yield* lockWaits(1)
+                    // inside a host transaction the second Deploy drops nothing: what is gone, the first dropped
+                    const sql = yield* SqlClient.SqlClient
+                    const second = yield* Effect.forkChild(sql.withTransaction(pairs.deploy()))
+                    yield* lockWaits(2)
+                    expect((yield* write.proceed).outcome).toBe("created")
+                    expect(yield* Fiber.join(first)).toEqual({ applied: [items[1]?.id] })
+                    expect(yield* Fiber.join(second)).toEqual({ applied: [] })
+                    expect(yield* uniqueIndexes).toHaveLength(1)
+                    yield* pairs.Item.write(item("b", "x", 2))
+                })
+        )
+
+        it.effect(
+            "two first Deploys at once: one creates the tables and applies the chain, the other applies nothing",
+            () =>
+                Effect.gen(function* () {
+                    yield* reset
+                    const deployed = yield* Effect.all([slugs.deploy(), slugs.deploy()], { concurrency: "unbounded" })
+                    expect(deployed.map(({ applied }) => applied.length).toSorted((a, b) => a - b)).toEqual([0, 1])
+                    expect(yield* uniqueIndexes).toHaveLength(1)
+                })
+        )
+
+        it.effect("two Deploys dropping a constraint at once: one applies, both finish, the constraint is gone", () =>
+            Effect.gen(function* () {
+                yield* reset
+                yield* slugs.deploy()
+                const [slugIndex] = yield* uniqueIndexes
+                const deployed = yield* Effect.all([pairs.deploy(), pairs.deploy()], { concurrency: "unbounded" })
+                expect(deployed.map(({ applied }) => applied.length).toSorted((a, b) => a - b)).toEqual([0, 1])
+                const indexes = yield* uniqueIndexes
+                expect(indexes).toHaveLength(1)
+                expect(indexes).not.toContain(slugIndex)
+            })
         )
     })
 })

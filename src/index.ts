@@ -19,6 +19,8 @@ export type {
     SortableKeys,
     Type,
     TypeName,
+    Unique,
+    UniquePath,
     ValueWhere,
     WhereField
 } from "./declaration.ts"
@@ -76,6 +78,7 @@ export {
     MissingTarget,
     ModelMismatch,
     ReferencedByHost,
+    UniqueViolation,
     ValidationFailed,
     type BlockingReason
 } from "./errors.ts"

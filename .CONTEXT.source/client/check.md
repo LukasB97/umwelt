@@ -29,7 +29,7 @@ type PendingMigration = {
 /** Reported in this order: Model, then chain, then Ledger. Type, Relations, Query, and Model own each trigger. */
 type BlockingReason =
   | { kind: "invalidSchema"; type: string }
-  | { kind: "invalidUniqueKey"; type: string }
+  | { kind: "invalidUniqueKey" | "invalidUnique"; type: string }
   | { kind: "reservedTypeName" | "duplicateTypeName"; type: string }
   | { kind: "reservedFieldName"; type: string; field: string }
   | { kind: "unknownRelationTarget" | "relationTargetWithoutUniqueKey"; type: string; field: string; target: string }

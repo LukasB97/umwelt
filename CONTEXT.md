@@ -23,7 +23,7 @@ Table chooses reading; on row match, read document start to end.
 
 | Document | Read when |
 | :-- | :-- |
-| [Type](CONTEXT/type.md) | declaring Types: schema, unique key, `immutable`, `history`; using a Type as Effect Schema. |
+| [Type](CONTEXT/type.md) | declaring Types: schema, unique key, unique constraints, `immutable`, `history`; using a Type as Effect Schema. |
 | [Object](CONTEXT/object.md) | Object ID, Identity, payload, or host foreign keys on Objects. |
 | [Relations](CONTEXT/relations.md) | declaring relations, strict or sparse references, reading them backwards, or how relations block Delete. |
 | [Model](CONTEXT/model.md) | Model, Migrations, Ledger: changing Types, `umwelt create`, what the database knows of Model. |

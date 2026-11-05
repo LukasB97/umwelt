@@ -6,6 +6,7 @@ const BlockingReason = Schema.Union([
         kind: Schema.Literals([
             "invalidSchema",
             "invalidUniqueKey",
+            "invalidUnique",
             "reservedTypeName",
             "duplicateTypeName",
             "immutableWithHistory",
@@ -76,6 +77,18 @@ export class MissingTarget extends Schema.TaggedError<MissingTarget, { readonly 
     {
         type: Schema.String,
         identity: Schema.Unknown
+    }
+) {}
+
+/**
+ * Values of a unique constraint held twice: by a Write, or by stored content after Deploy's Migrations.
+ * `fields` is the constraint as declared.
+ */
+export class UniqueViolation extends Schema.TaggedError<UniqueViolation, { readonly brand: unique symbol }>()(
+    "UniqueViolation",
+    {
+        type: Schema.String,
+        fields: Schema.Record(Schema.String, Schema.Unknown)
     }
 ) {}
 

@@ -26,7 +26,7 @@ export const stored = Effect.gen(function* () {
 
 const order: readonly (readonly BlockingReason["kind"][])[] = [
     ["invalidSchema"],
-    ["invalidUniqueKey"],
+    ["invalidUniqueKey", "invalidUnique"],
     ["reservedTypeName", "duplicateTypeName"],
     ["reservedFieldName"],
     ["unknownRelationTarget", "relationTargetWithoutUniqueKey"],

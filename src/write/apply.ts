@@ -2,26 +2,38 @@
 import { Effect, Schema } from "effect"
 import type { SqlClient, SqlError, Statement } from "effect/sql"
 import { canonicalJson } from "../canonical.ts"
-import { ConditionRejected, type ValidationFailed } from "../errors.ts"
+import { ConditionRejected, type UniqueViolation, type ValidationFailed } from "../errors.ts"
 import { umweltSql } from "../storage/tables.ts"
+import { enforcing } from "../storage/unique.ts"
 import type { Entry, Match } from "./entry.ts"
 import { encode, isRecord, type Input } from "../input.ts"
 
 type Stored = { readonly id: string; readonly payload: Input }
 export type Applied = { readonly id: string; readonly outcome: "created" | "changed" | "unchanged" }
-type ApplyError = ConditionRejected | ValidationFailed | SqlError.SqlError
+type ApplyError = ConditionRejected | UniqueViolation | ValidationFailed | SqlError.SqlError
 
 const reject = (reason: ConditionRejected["reason"]) => Effect.fail(new ConditionRejected({ reason }))
+
+/**
+ * One Identity, one transaction at a time: a transaction-scoped advisory lock on the 64-bit hash of Type and Identity as
+ * jsonb text, taken before the Object is located, so a create of it never meets a concurrent one.
+ */
+const lockIdentity = (sql: Statement.Constructor, type: string, identity: string) =>
+    sql`select pg_advisory_xact_lock(hashtextextended(jsonb_build_array(${type}::text, ${identity}::jsonb)::text, 0))`
 
 /** The addressed Object, locked for the rest of the operation; `no key update`, so Writes pointing at it are not held up. */
 const locate = (sql: Statement.Constructor, entry: Entry) =>
     Effect.gen(function* () {
         const { address, type } = entry
         if (address === undefined) return undefined
-        const rows = yield* "id" in address
-            ? sql<Stored>`select id, payload from umwelt_object where type = ${type.name} and id = ${address.id} for no key update`
-            : sql<Stored>`select id, payload from umwelt_object
-                where type = ${type.name} and identity = ${address.identity}::jsonb for no key update`
+        if ("id" in address) {
+            const rows = yield* sql<Stored>`select id, payload from umwelt_object
+                where type = ${type.name} and id = ${address.id} for no key update`
+            return rows[0]
+        }
+        yield* lockIdentity(sql, type.name, address.identity)
+        const rows = yield* sql<Stored>`select id, payload from umwelt_object
+            where type = ${type.name} and identity = ${address.identity}::jsonb for no key update`
         return rows[0]
     })
 
@@ -57,9 +69,9 @@ const stateOf = (entry: Entry, current: Stored | undefined) =>
     })
 
 /**
- * A create that meets a concurrent create of the same Identity waits for it; once that commits, nothing is inserted
- * and the entry applies again, now to the existing Object, so its condition decides. Identity is the only unique rule an
- * insert can meet, so the conflict names no index. Inserts get `created` and `changed` from the database clock.
+ * A Write of an Identity a concurrent Write holds waits for its commit at the Identity lock, then finds its Object, so
+ * the condition decides. A unique constraint an insert or update meets fails with UniqueViolation.
+ * Inserts get `created` and `changed` from the database clock.
  */
 export const apply = (entry: Entry): Effect.Effect<Applied, ApplyError, SqlClient.SqlClient> =>
     Effect.gen(function* () {
@@ -71,10 +83,13 @@ export const apply = (entry: Entry): Effect.Effect<Applied, ApplyError, SqlClien
         const json = JSON.stringify(state)
         if (current === undefined) {
             const identity = address !== undefined && "identity" in address ? address.identity : null
-            const [created] = yield* sql<{ id: string }>`insert into umwelt_object (type, identity, payload)
-                values (${type.name}, ${identity}::jsonb, ${json}::jsonb)
-                on conflict do nothing returning id`
-            if (created === undefined) return yield* apply(entry)
+            const [created] = yield* enforcing(
+                type.name,
+                type.unique,
+                sql<{ id: string }>`insert into umwelt_object (type, identity, payload)
+                    values (${type.name}, ${identity}::jsonb, ${json}::jsonb) returning id`
+            )
+            if (created === undefined) return yield* Effect.die(new Error("insert returned no row"))
             return { id: created.id, outcome: "created" } satisfies Applied
         }
         if (canonicalJson(current.payload) === canonicalJson(state))
@@ -82,6 +97,10 @@ export const apply = (entry: Entry): Effect.Effect<Applied, ApplyError, SqlClien
         if (type.immutable) return yield* reject("immutable")
         if (type.history)
             yield* sql`insert into umwelt_history (object, payload) select id, payload from umwelt_object where id = ${current.id}`
-        yield* sql`update umwelt_object set payload = ${json}::jsonb, changed = now() where id = ${current.id}`
+        yield* enforcing(
+            type.name,
+            type.unique,
+            sql`update umwelt_object set payload = ${json}::jsonb, changed = now() where id = ${current.id}`
+        )
         return { id: current.id, outcome: "changed" } satisfies Applied
     })

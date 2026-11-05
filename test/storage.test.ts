@@ -4,7 +4,7 @@ import { SqlClient } from "effect/sql"
 import { Umwelt } from "../src/index.ts"
 import { migrationHash } from "../src/migration.ts"
 import { resolveModel } from "../src/resolve.ts"
-import { appliedMigrations, requireModel } from "../src/storage/gate.ts"
+import { appliedMigrations, guarded } from "../src/storage/gate.ts"
 import { ensureLayout } from "../src/storage/tables.ts"
 import { chainOf } from "./chain-fixture.ts"
 import { TestDatabase } from "./database.ts"
@@ -23,7 +23,7 @@ describe("storage", () => {
         it.effect("gate reports ModelMismatch before Umwelt's tables exist", () =>
             Effect.gen(function* () {
                 expect(yield* appliedMigrations).toEqual([])
-                const error = yield* Effect.flip(requireModel(model))
+                const error = yield* Effect.flip(guarded(model, Effect.void))
                 expect(error).toMatchObject({ _tag: "ModelMismatch", database: null, code: "a" })
             })
         )
@@ -68,10 +68,10 @@ describe("storage", () => {
             Effect.gen(function* () {
                 const sql = yield* SqlClient.SqlClient
                 yield* sql`insert into umwelt_ledger (position, id, hash) values (1, 'a', 'sha256:other')`
-                expect(yield* Effect.flip(requireModel(model))).toMatchObject({ database: "a", code: "a" })
+                expect(yield* Effect.flip(guarded(model, Effect.void))).toMatchObject({ database: "a", code: "a" })
                 yield* sql`update umwelt_ledger set hash = ${migrationHash(first)} where id = 'a'`
-                yield* requireModel(model)
-                expect(yield* Effect.flip(requireModel(resolveModel([], [])))).toMatchObject({
+                yield* guarded(model, Effect.void)
+                expect(yield* Effect.flip(guarded(resolveModel([], []), Effect.void))).toMatchObject({
                     database: "a",
                     code: null
                 })
@@ -86,9 +86,9 @@ describe("storage", () => {
                 const [only] = chain
                 if (only === undefined) return yield* Effect.die(new Error("empty chain"))
                 yield* sql`update umwelt_ledger set id = ${only.id}, hash = ${migrationHash(only)} where position = 1`
-                yield* requireModel(resolveModel([Tag], chain))
+                yield* guarded(resolveModel([Tag], chain), Effect.void)
                 const changed = Umwelt.type("Tag", { name: Schema.String, color: Schema.String })
-                expect(yield* Effect.flip(requireModel(resolveModel([changed], chain)))).toMatchObject({
+                expect(yield* Effect.flip(guarded(resolveModel([changed], chain), Effect.void))).toMatchObject({
                     _tag: "ModelMismatch",
                     database: only.id,
                     code: only.id

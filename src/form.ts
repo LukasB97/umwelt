@@ -53,13 +53,19 @@ function structure(value: unknown): unknown {
 /** Form of a resolved payload codec: `$defs` beside the root when shared definitions exist; options as root annotations. */
 export const formOf = (
     payload: Schema.Top,
-    options: { readonly uniqueKey: readonly string[]; readonly immutable: boolean; readonly history: boolean }
+    options: {
+        readonly uniqueKey: readonly string[]
+        readonly unique: readonly object[]
+        readonly immutable: boolean
+        readonly history: boolean
+    }
 ): JsonSchema => {
     const document = Schema.toJsonSchemaDocument(payload, { includeAnnotationKey: isUmweltKey })
     return {
         ...structureOf(document.schema),
         ...(Object.keys(document.definitions).length > 0 ? { $defs: mapValues(document.definitions, structure) } : {}),
         ...(options.uniqueKey.length > 0 ? { "x-umwelt-unique-key": options.uniqueKey.toSorted() } : {}),
+        ...(options.unique.length > 0 ? { "x-umwelt-unique": options.unique } : {}),
         ...(options.immutable ? { "x-umwelt-immutable": true } : {}),
         ...(options.history ? { "x-umwelt-history": true } : {})
     }

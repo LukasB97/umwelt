@@ -55,6 +55,7 @@ type Write<Ts extends Model> = {
    * Address is Identity in `data` or `id` beside it, never both.
    * Equal content returns `unchanged`. Immutable Types: Type owns what Write may change.
    * Relation fields are normal payload fields; Relations owns when targets must exist.
+   * Concurrent Writes of one Identity apply one after another: the later sees the Object the earlier left, its condition decides.
    */
   <T extends Ts[number]>(entry: WriteEntry<T>): Effect<WriteResult<T>, WriteError, SqlClient>
   /**
@@ -75,6 +76,7 @@ type WriteResult<T extends AnyType> = {
 type WriteError =
   | ConditionRejected   // mustExist, mustNotExist, mustMatch, immutable change, unknown `id`, see Object
   | DuplicateIdentity   // same Identity twice in one list; value fact, type cannot exclude it
+  | UniqueViolation     // another Object holds values of unique constraint, see Type; checked per entry, so swapping values inside one list fails too
   | ValidationFailed    // resulting state fails Type schema: incomplete create through upsert, overlay result, schema check; or key or `absent` the input types do not allow
   | MissingTarget       // strict relation target missing after list applied
   | ModelMismatch       // see Model
@@ -100,6 +102,8 @@ umwelt.Play.write({ data: { track: { slug: "night-drive" }, at: earlier } })
 // without unique key: `id` addresses, mustMatch guards that Object
 umwelt.Play.write({ id: playId, data: { at: later } })
 umwelt.Play.write({ id: playId, data: { at: later }, mustMatch: { at: earlier } })
+// unique `track` with `at`: values may change; another Play holding both fails with UniqueViolation
+umwelt.Play.write({ id: playId, data: { track: { slug: "night-drive" }, at: earlier } })
 // relation field holds target Identity
 umwelt.Playlist.write({ data: { name: "road-trip", tracks: [{ slug: "night-drive" }] } })
 // ordered list mixing Types, all or none; later entries see earlier ones

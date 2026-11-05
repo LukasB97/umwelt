@@ -17,6 +17,19 @@ export type Mutability = { immutable?: false; history?: boolean } | { immutable:
 export type ReservedTypeName = "write" | "get" | "query" | "delete" | "history" | "check" | "deploy" | "promise"
 export type SubFields<F extends Fields> = { [K in keyof F]?: F[K] }
 
+/** Path into the stored reference of a `one` relation field; Check owns that it stays inside the target's unique key. */
+export type UniquePath = { readonly [key: string]: true | UniquePath }
+type Held<S> = S extends { readonly Type: infer X } ? NonNullable<X> : unknown
+/**
+ * One unique constraint over F: `true` leaves name the values unique together. A path takes `one` relation fields only;
+ * `many` relation fields take nothing.
+ */
+export type Unique<F extends Fields> = AtLeastOne<{
+    readonly [K in keyof F as [Held<F[K]>] extends [readonly Reference<string>[]] ? never : K]?:
+        | true
+        | ([Held<F[K]>] extends [Reference<string>] ? UniquePath : never)
+}>
+
 declare const IdTag: unique symbol
 /** Opaque Object ID, branded per Type. Only Umwelt makes one. */
 export type ObjectId<T> = string & { readonly [IdTag]: T }
@@ -55,6 +68,7 @@ export interface AnyType {
     readonly "~fields": Fields
     readonly Type: unknown
     readonly "~uniqueKey": Fields
+    readonly "~unique": readonly object[]
     readonly "~mutability": Mutability
 }
 
@@ -72,6 +86,7 @@ export interface Type<
     readonly fields: F & { readonly [K in RelationKeys<F>]: RelationField<Type<N, F, UK, M>, K, {}> }
     readonly "~fields": F
     readonly "~uniqueKey": UK
+    readonly "~unique": readonly Unique<F>[]
     readonly "~mutability": M
 }
 

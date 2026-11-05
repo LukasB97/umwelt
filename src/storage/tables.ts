@@ -23,10 +23,10 @@ export const umweltSql = Effect.gen(function* () {
     return sql.withoutTransforms()
 })
 
-/** Brings Umwelt's tables to the library's layout; idempotent. Deploy runs it, outside the chain. */
-export const ensureLayout = Effect.gen(function* () {
-    const sql = yield* umweltSql
-    yield* sql`create table if not exists umwelt_object (
+/** `umwelt_object`, unless it exists; an existing one it does not lock. */
+export const createObjects = Effect.flatMap(
+    umweltSql,
+    (sql) => sql`create table if not exists umwelt_object (
         id text primary key default gen_random_uuid()::text,
         type text not null,
         identity jsonb,
@@ -34,6 +34,12 @@ export const ensureLayout = Effect.gen(function* () {
         created timestamptz(3) not null default now(),
         changed timestamptz(3) not null default now()
     )`
+)
+
+/** Brings Umwelt's tables to the library's layout; idempotent. Deploy runs it, outside the chain. */
+export const ensureLayout = Effect.gen(function* () {
+    const sql = yield* umweltSql
+    yield* createObjects
     yield* sql`create index if not exists umwelt_object_created on umwelt_object (type, created)`
     yield* sql`create index if not exists umwelt_object_changed on umwelt_object (type, changed)`
     // Identity of any size: the unique index holds its hash, since btree entries are limited; equality joins use the hash index.

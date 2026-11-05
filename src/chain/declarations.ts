@@ -5,6 +5,7 @@ import type { ReservedTypeName } from "../declaration.ts"
 import type { BlockingReason } from "../errors.ts"
 import { isSchema, list, type JsonSchema } from "../migration.ts"
 import type { ResolvedModel, ResolvedType } from "../resolve.ts"
+import { maxUniqueFields, pathsOf, uniqueOf, type UniqueFields } from "../unique.ts"
 import { domainsOf, shapeOf, type Domain } from "../values.ts"
 
 const reservedTypeNames: ReadonlySet<string> = new Set<ReservedTypeName>([
@@ -79,6 +80,33 @@ const reservedPaths = (domain: Domain, path: string, entered: ReadonlySet<Schema
 
 const when = (condition: boolean, reason: BlockingReason): readonly BlockingReason[] => (condition ? [reason] : [])
 
+/** A path into a stored reference of `target` reaches its unique key fields only, and descends through `one` relations. */
+const validPath = (model: Declared, target: string, path: UniqueFields): boolean => {
+    const type = model.types.get(target)
+    return (
+        type !== undefined &&
+        Object.entries(path).every(([key, item]) => {
+            if (!type.uniqueKey.includes(key)) return false
+            const slot = type.slots.get(key)
+            return item === true || (slot?.card === "one" && validPath(model, slot.target, item))
+        })
+    )
+}
+
+/** Known top-level fields, no `many` relation, paths only below `one` relations; at most as many values as an index has columns. */
+const validUnique = (model: Declared, resolved: ResolvedType) =>
+    uniqueOf(resolved.type["~unique"]) !== undefined &&
+    resolved.unique.every(
+        ({ fields }) =>
+            pathsOf(fields).length <= maxUniqueFields &&
+            Object.entries(fields).every(([key, item]) => {
+                if (!resolved.fields.has(key)) return false
+                const slot = resolved.slots.get(key)
+                if (item === true) return slot?.card !== "many"
+                return slot?.card === "one" && validPath(model, slot.target, item)
+            })
+    )
+
 /** What the Model's own checks read: Types as given, and resolved by name. */
 type Declared = Pick<ResolvedModel, "model" | "types">
 
@@ -115,6 +143,7 @@ const typeReasons = (model: Declared, resolved: ResolvedType): readonly Blocking
     return [
         ...when(holdsUndefined(type.ast, new Set()) || opaque(resolved.form), { kind: "invalidSchema", type: name }),
         ...when(!validKey(resolved), { kind: "invalidUniqueKey", type: name }),
+        ...when(!validUnique(model, resolved), { kind: "invalidUnique", type: name }),
         ...when(reservedTypeNames.has(name), { kind: "reservedTypeName", type: name }),
         ...when(repeated, { kind: "duplicateTypeName", type: name }),
         ...reservedPaths({ encodings: [resolved.payload.ast], optional: false }, "", new Set()).map(

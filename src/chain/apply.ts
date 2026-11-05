@@ -3,7 +3,9 @@ import { Effect, Schema, SchemaRepresentation, type JsonSchema as Json } from "e
 import { canonicalJson, same } from "../canonical.ts"
 import { MigrationFailed } from "../errors.ts"
 import { isSchema, list, type JsonSchema, type Migration, type Step } from "../migration.ts"
+import type { ResolvedModel } from "../resolve.ts"
 import { umweltSql } from "../storage/tables.ts"
+import { enforcing } from "../storage/unique.ts"
 
 /** Stored JSON with its Object: `key` addresses the row, `identity` is the Object's stored identity column. */
 type Row = { readonly key: string; readonly object: string; readonly identity: unknown; readonly payload: unknown }
@@ -89,6 +91,7 @@ const rewrite = <E, R>(
     )
 
 const applyStep = (
+    model: ResolvedModel,
     migration: string,
     type: string,
     { before, after, migrate }: Step<JsonSchema | null, JsonSchema | null>
@@ -102,11 +105,12 @@ const applyStep = (
         const failed = (row: Row, cause: string) => new MigrationFailed({ migration, type, object: row.object, cause })
         const objects = yield* sql<Row>`select id as key, id as object, identity, payload
             from umwelt_object where type = ${type}`
-        yield* rewrite(
-            objects,
-            fit,
-            failed,
-            (key, payload) => sql`update umwelt_object set payload = ${canonicalJson(payload)}::jsonb where id = ${key}`
+        yield* rewrite(objects, fit, failed, (key, payload) =>
+            enforcing(
+                type,
+                model.types.get(type)?.unique ?? [],
+                sql`update umwelt_object set payload = ${canonicalJson(payload)}::jsonb where id = ${key}`
+            )
         )
         const history = yield* sql<Row>`select h.position::text as key, o.id as object, o.identity, h.payload
             from umwelt_history h join umwelt_object o on o.id = h.object where o.type = ${type}`
@@ -119,8 +123,12 @@ const applyStep = (
         )
     })
 
-/** Each touched Type of one Migration over its stored content; `safe` steps are proven, never trusted. */
-export const applyMigration = (migration: Migration) =>
-    Effect.forEach(Object.entries(migration.types), ([type, step]) => applyStep(migration.id, type, step), {
+/**
+ * Each touched Type of one Migration over its stored content; `safe` steps are proven, never trusted. Objects are
+ * rewritten under the unique indexes in place, as Writes are: a result meeting another Object's values fails with
+ * UniqueViolation.
+ */
+export const applyMigration = (model: ResolvedModel, migration: Migration) =>
+    Effect.forEach(Object.entries(migration.types), ([type, step]) => applyStep(model, migration.id, type, step), {
         discard: true
     })

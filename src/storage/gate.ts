@@ -1,8 +1,10 @@
 /**
  * Model gate: Object operations run only while Ledger's head is the chain's head and Model in code is valid and equals
- * the folded chain. Writes and Deploy stay apart through a transaction-scoped advisory lock: writes hold it shared,
- * Deploy exclusively. Reads take no lock: each reads Ledger's head in the statement that reads its data, so both come
- * from one snapshot.
+ * the folded chain. Every transaction changing `umwelt_object` takes its table lock first, so none waits in a cycle:
+ * writes ROW EXCLUSIVE; Deploy SHARE ROW EXCLUSIVE, which keeps writes and other Deploys out and lets reads run; its
+ * drop of unique indexes ACCESS EXCLUSIVE, in a transaction of its own. Before the tables
+ * exist, an advisory lock stands in for the table lock of the Deploy creating them. Reads take no lock of their own:
+ * each reads Ledger's head in the statement that reads its data, so both come from one snapshot.
  */
 import { Effect } from "effect"
 import type { Statement } from "effect/sql"
@@ -12,11 +14,11 @@ import { umweltSql } from "./tables.ts"
 
 export type Applied = { readonly id: string; readonly hash: string }
 
-/** Advisory lock key of the Model, "umwelt" in ASCII. */
-const modelLock = 0x75_6d_77_65_6c_74
+/** Advisory lock key standing in for `umwelt_object` before it exists, "layout" in ASCII. */
+const layoutLock = 0x6c_61_79_6f_75_74
 
 /** Umwelt's tables exist: the first Deploy made them. */
-const laidOut = Effect.gen(function* () {
+export const laidOut = Effect.gen(function* () {
     const sql = yield* umweltSql
     const [table] = yield* sql<{ present: boolean }>`select to_regclass('umwelt_ledger') is not null as present`
     return table?.present === true
@@ -40,19 +42,31 @@ const ledgerHead = Effect.gen(function* () {
     return head
 })
 
+const isHead = (model: ResolvedModel, head: Head | undefined) =>
+    head?.id === model.head?.id && head?.hash === model.head?.hash
+
 const requireHead = (model: ResolvedModel, head: Head | undefined) =>
-    model.current && model.valid && head?.id === model.head?.id && head?.hash === model.head?.hash
+    model.current && model.valid && isHead(model, head)
         ? Effect.void
         : Effect.fail(new ModelMismatch({ database: head?.id ?? null, code: model.head?.id ?? null }))
 
-/** Deploy's side: writes of other transactions wait until this transaction ends, and it for theirs. */
-export const lockModel = Effect.flatMap(umweltSql, (sql) => sql`select pg_advisory_xact_lock(${modelLock}::bigint)`)
+/** Whether Ledger's head is Model's; under a lock keeping Deploy out, the committed Ledger decides. */
+export const atHead = (model: ResolvedModel) => Effect.map(ledgerHead, (head) => isHead(model, head))
 
-/** Takes the Model lock shared for the rest of the transaction, then fails with ModelMismatch unless Model and Ledger agree. */
-export const requireModel = (model: ResolvedModel) =>
+type TableLock = "row exclusive" | "share row exclusive" | "access exclusive"
+
+/** The transaction's first lock on `umwelt_object`, held to its end. */
+export const lockObjects = (mode: TableLock) =>
+    Effect.flatMap(umweltSql, (sql) => sql`lock table umwelt_object in ${sql.literal(mode)} mode`)
+
+/** Before the tables exist, Deploy holds this lock while it creates `umwelt_object`, so a concurrent first Deploy waits. */
+export const lockLayout = Effect.flatMap(umweltSql, (sql) => sql`select pg_advisory_xact_lock(${layoutLock}::bigint)`)
+
+/** The write's table lock, held to the end of the transaction; then fails with ModelMismatch unless Model and Ledger agree. */
+const requireModel = (model: ResolvedModel) =>
     Effect.gen(function* () {
-        const sql = yield* umweltSql
-        yield* sql`select pg_advisory_xact_lock_shared(${modelLock}::bigint)`
+        if (!(yield* laidOut)) return yield* requireHead(model, undefined)
+        yield* lockObjects("row exclusive")
         return yield* requireHead(model, yield* ledgerHead)
     })
 
@@ -72,7 +86,7 @@ export const requireReadable = (model: ResolvedModel) =>
  * Ledger's head, and only while that head is the chain's; the values in rank order. Head row first, then one row per
  * value; `exists` is evaluated once, so `rows` runs only behind a matching head. One statement sees one snapshot,
  * also inside a host transaction at READ COMMITTED: a Deploy committing meanwhile is seen completely or not at all.
- * No lock and no transaction, so reads never wait for Deploy.
+ * No lock and no transaction, so reads wait for no Deploy but its ACCESS EXCLUSIVE steps.
  */
 export const gatedRead = (model: ResolvedModel, rows: Statement.Fragment) =>
     Effect.gen(function* () {

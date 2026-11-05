@@ -6,6 +6,7 @@ import type { AnyType } from "./declaration.ts"
 import { formOf, relationsOf, type RelationLocation } from "./form.ts"
 import { migrationHash, type JsonSchema, type Migration } from "./migration.ts"
 import { placeholderOf, relationKey, slotOf, type RelationAnnotation } from "./relation.ts"
+import { uniqueIndex, uniqueOf, type UniqueIndex } from "./unique.ts"
 
 export interface ResolvedType {
     readonly type: AnyType
@@ -18,6 +19,8 @@ export interface ResolvedType {
     readonly fields: ReadonlyMap<string, Codec>
     /** Unique key field names, sorted; empty without unique key. */
     readonly uniqueKey: readonly string[]
+    /** Unique constraints in canonical order, each with its index; empty while the declaration is invalid, see Check. */
+    readonly unique: readonly UniqueIndex[]
     /** JSON codec of Identity; `undefined` without unique key. */
     readonly identity: Codec | undefined
     readonly immutable: boolean
@@ -148,7 +151,8 @@ const resolveType = (type: AnyType, resolver: Resolver): ResolvedType => {
     const identity = resolver.identityOf(type.name)
     const uniqueKey = Object.keys(type["~uniqueKey"]).toSorted()
     const { immutable, history } = type["~mutability"]
-    const form = formOf(payload, { uniqueKey, immutable: immutable === true, history: history === true })
+    const unique = uniqueOf(type["~unique"]) ?? []
+    const form = formOf(payload, { uniqueKey, unique, immutable: immutable === true, history: history === true })
     const fields = SchemaAST.isObjects(payload.ast) ? payload.ast.propertySignatures : []
     const slots = new Map<string, RelationAnnotation>()
     for (const [key, field] of Object.entries(type["~fields"])) {
@@ -164,6 +168,7 @@ const resolveType = (type: AnyType, resolver: Resolver): ResolvedType => {
             fields.map((field) => [String(field.name), Schema.toCodecJson(Schema.make<Codec>(field.type))])
         ),
         uniqueKey,
+        unique: unique.map((fields) => uniqueIndex(type.name, fields)),
         identity: identity === undefined ? undefined : Schema.toCodecJson(Schema.make<Codec>(identity)),
         immutable: immutable === true,
         history: history === true,

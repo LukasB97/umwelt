@@ -27,6 +27,7 @@ import type {
     MissingTarget,
     ModelMismatch,
     ReferencedByHost,
+    UniqueViolation,
     ValidationFailed
 } from "./errors.ts"
 
@@ -153,10 +154,16 @@ export type QueryResult<Ts extends Model, T extends AnyType, I> = {
 }
 
 // ---------------------------------------------------------------- errors per operation
-export type WriteError = ConditionRejected | DuplicateIdentity | ValidationFailed | MissingTarget | ModelMismatch
+export type WriteError =
+    | ConditionRejected
+    | DuplicateIdentity
+    | UniqueViolation
+    | ValidationFailed
+    | MissingTarget
+    | ModelMismatch
 export type ReadError = ValidationFailed | ModelMismatch
 export type DeleteError = ValidationFailed | ReferencedByHost | ModelMismatch
-export type DeployError = Blocked | MigrationFailed | MissingTarget
+export type DeployError = Blocked | MigrationFailed | MissingTarget | UniqueViolation
 
 // ---------------------------------------------------------------- write
 /** Required fields take a value; optional fields take a value or `Umwelt.absent`, which removes the field. */

@@ -88,3 +88,11 @@ export const tableExists = (name: string) =>
         const [row] = yield* sql<{ present: boolean }>`select to_regclass(${name}) is not null as present`
         return row?.present === true
     })
+
+/** Names of Umwelt's unique indexes in the database, sorted. */
+export const uniqueIndexes = Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient
+    const rows = yield* sql<{ name: string }>`select indexname as name from pg_indexes
+        where tablename = 'umwelt_object' and starts_with(indexname, 'umwelt_unique_') order by indexname`
+    return rows.map(({ name }) => name)
+})

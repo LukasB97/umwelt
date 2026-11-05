@@ -4,7 +4,7 @@ import type { AnyType, Fields } from "../src/declaration.ts"
 import { Umwelt } from "../src/index.ts"
 import type { Migration } from "../src/migration.ts"
 import { resolveModel } from "../src/resolve.ts"
-import { requireModel } from "../src/storage/gate.ts"
+import { guarded } from "../src/storage/gate.ts"
 import {
     chainOf,
     extend,
@@ -52,7 +52,7 @@ describe("Deploy", () => {
                     const client = Umwelt.make(types, { migrations: chain })
                     expect(yield* client.deploy()).toEqual({ applied: chain.map(({ id }) => id) })
                     expect(yield* ledgerOf).toEqual(chain.map(({ id }) => id))
-                    yield* requireModel(resolveModel(types, chain))
+                    yield* guarded(resolveModel(types, chain), Effect.void)
                     expect(yield* client.deploy()).toEqual({ applied: [] })
                 })
         )

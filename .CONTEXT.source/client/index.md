@@ -9,7 +9,7 @@ Client is model-aware API made from Model; every operation on Objects and Model 
 
 ```ts
 const Track = Umwelt.type("Track", { slug: Schema.String, title: Schema.String, note: Schema.optionalKey(Schema.String), release: Schema.optionalKey(Schema.Struct({ label: Schema.String, genres: Schema.Array(Schema.String), credits: Schema.Array(Schema.Struct({ role: Schema.String, name: Schema.String })) })) }, { uniqueKey: Schema.Struct({ slug: Schema.String }) })
-const Play = Umwelt.type("Play", { track: Umwelt.one("Track"), at: Schema.Date })
+const Play = Umwelt.type("Play", { track: Umwelt.one("Track"), at: Schema.Date }, { unique: [{ track: true, at: true }] })
 const Playlist = Umwelt.type("Playlist", { name: Schema.String, tracks: Umwelt.many("Track") }, { uniqueKey: Schema.Struct({ name: Schema.String }), history: true })
 const umwelt = Umwelt.make([Track, Play, Playlist], { migrations })   // migrations: the chain, see Model
 ```

@@ -1,13 +1,13 @@
 ---
 order: 10
 render_to: CONTEXT/type.md
-read_when: "declaring Types: schema, unique key, `immutable`, `history`; using a Type as Effect Schema."
+read_when: "declaring Types: schema, unique key, unique constraints, `immutable`, `history`; using a Type as Effect Schema."
 ---
 # Type
 
 Type declares what content means; every Object has one Type and follows it.
 Developers define Types in code, like track, play, or playlist.
-Minimal Type has name and schema. Optional parts: unique key, [relations](relations.md), `immutable`, `history`.
+Minimal Type has name and schema. Optional parts: unique key, `unique`, [relations](relations.md), `immutable`, `history`.
 Types belong to [Model](model.md); application code never creates or changes Types at runtime.
 
 ```ts
@@ -24,6 +24,11 @@ type Mutability =
 
 /** Fields of F, same schemas. */
 type SubFields<F extends Fields> = { [K in keyof F]?: F[K] }
+
+/** One unique constraint over F: `true` leaves name the values unique together; `UniquePath` on `one` relation fields only, `many` relation fields excluded. */
+type Unique<F extends Fields> = AtLeastOne<{ [K in keyof F]?: true | UniquePath }>
+/** Path into stored reference of `one` relation field. */
+type UniquePath = { [key: string]: true | UniquePath }
 ```
 
 ```ts
@@ -32,8 +37,11 @@ namespace Umwelt {
   function type<const N extends string, const F extends Fields, const UK extends SubFields<F> & Fields = {}, const M extends Mutability = {}>(
     name: N extends ReservedTypeName ? never : N,
     fields: F,
-    /** `uniqueKey`: fields forming Identity, see Object. The type rejects a key field whose schema differs from `fields`; a key field missing from `fields` is Check's `invalidUniqueKey`. */
-    options?: { uniqueKey?: Schema.Struct<UK> } & M
+    /**
+     * `uniqueKey`: fields forming Identity, see Object. The type rejects a key field whose schema differs from `fields`; a key field missing from `fields` is Check's `invalidUniqueKey`.
+     * `unique`: constraints beside Identity, see Unique. The type rejects unknown fields, `many` relation fields, and paths below other fields; a path leaving target's unique key is Check's `invalidUnique`.
+     */
+    options?: { uniqueKey?: Schema.Struct<UK>; unique?: readonly Unique<F>[] } & M
   ): Type<N, F, UK, M>
 }
 ```
@@ -71,6 +79,22 @@ Later, not now: declaring Types from JSON Schema. Migrations already hold JSON S
 Unique key selects schema fields forming [Identity](object.md): one or several fields, each present in `fields` with same schema, else [Check](client/check.md) blocks with `invalidUniqueKey`.
 Without unique key, Objects have no Identity, see Object.
 Identity never changes ([Object](object.md)), so Check blocks unique key change with `uniqueKeyChangeWithObjects` while Objects of Type exist: delete them first.
+
+## Unique
+
+`unique` lists constraints independent of Identity: no two Objects of Type hold equal values in all fields of one constraint. Values may change; Type may have many constraints; key order never counts.
+
+```ts
+const Issue = Umwelt.type("Issue", { key: Schema.String, slug: Schema.String, status: Umwelt.one("Status"), number: Schema.Int }, {
+  uniqueKey: Schema.Struct({ key: Schema.String }),
+  unique: [{ status: { team: true }, number: true }, { slug: true }],   // number per team of status; slug
+})
+```
+
+`field: true` takes whole value, compared as JSON, object key order aside; on `one` relation field, whole stored reference, target Identity.
+Nested object on `one` relation field is path into stored reference; it reaches only fields of target's unique key, which sit in this Object's payload and never change. Check blocks other paths, `many` relation fields, and unknown fields with `invalidUnique`.
+JSON null or absent value in any field of constraint never collides, like SQL NULL.
+Database enforces each constraint, also against concurrent Writes: [Write](client/write.md) fails with `UniqueViolation`; [Deploy](client/deploy.md) adds, changes, and drops constraints.
 
 ## Mutability
 
