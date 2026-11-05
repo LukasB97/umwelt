@@ -7,7 +7,7 @@ import type { ValidationFailed } from "../errors.ts"
 import { entriesOf, exact, invalid, isRecord, type Input } from "../input.ts"
 import type { ResolvedModel, ResolvedType } from "../resolve.ts"
 import { timeColumn, type TimeColumn } from "../times.ts"
-import { isNumeric, kindsOf } from "../where.ts"
+import { domainsOf, isNumeric, kindsOf, payloadOf } from "../values.ts"
 
 /** A payload field, or a time column. `numeric`: the field holds numbers, sorted by numeric value whatever their stored form. */
 export type Order =
@@ -43,8 +43,13 @@ const count = (value: unknown, key: string) =>
 const cursorOf = (value: unknown) =>
     value === undefined || typeof value === "string" ? Effect.succeed(value) : invalid("cursor takes an Object ID")
 
+const kindsAt = (type: ResolvedType, field: string) => {
+    const domain = domainsOf(payloadOf(type)).get(field)
+    return domain === undefined ? undefined : kindsOf(domain.encodings)
+}
+
 /** Orders by fields of one sort kind, number, string, or Date, also nullable; never by relation fields. */
-const sortable = (type: ResolvedType, field: string) => !type.slots.has(field) && kindsOf(type, field)?.size === 1
+const sortable = (type: ResolvedType, field: string) => !type.slots.has(field) && kindsAt(type, field)?.size === 1
 
 const orderEntry = (type: ResolvedType, entry: unknown): Effect.Effect<Order, ValidationFailed> => {
     const entries = isRecord(entry) ? entriesOf(entry) : []
@@ -59,7 +64,7 @@ const orderEntry = (type: ResolvedType, entry: unknown): Effect.Effect<Order, Va
             : Effect.succeed({ column, descending })
     }
     if (!sortable(type, key)) return invalid(`${type.name} has no sortable field ${key}`)
-    return Effect.succeed({ field: key, descending, numeric: isNumeric(kindsOf(type, key)) })
+    return Effect.succeed({ field: key, descending, numeric: isNumeric(kindsAt(type, key)) })
 }
 
 const orderOf = (type: ResolvedType, orderBy: unknown) => {

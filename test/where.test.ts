@@ -38,7 +38,8 @@ const seedAll = Effect.gen(function* () {
     yield* seed(Playlist, {
         name: "road-trip",
         tracks: [{ slug: "night-drive" }, { slug: "first-light" }],
-        tags: ["a"]
+        tags: ["a"],
+        entries: [{ track: { slug: "night-drive" }, rating: 5 }]
     })
     yield* seed(Playlist, { name: "chill", tracks: [{ slug: "slow-tide" }], tags: [] })
     yield* seed(Playlist, { name: "focus", tracks: [], tags: ["a", "b"] })
@@ -149,6 +150,15 @@ describe("where", () => {
             })
         )
 
+        it.effect("relation fields inside values compare the stored Identity", () =>
+            Effect.gen(function* () {
+                expect(yield* playlist({ entries: { some: { track: { is: { slug: "night-drive" } } } } })).toEqual([
+                    "road-trip"
+                ])
+                yield* rejected(playlist({ entries: { some: { track: { is: { title: "Night Drive" } } } } }))
+            })
+        )
+
         it.effect("rejects keys the types do not allow and values that do not fit", () =>
             Effect.gen(function* () {
                 yield* rejected(track({}))
@@ -177,7 +187,7 @@ describe("where", () => {
                 yield* rejected(
                     playlist({ entries: { in: [[{ ...entry, track: { slug: "night-drive", extra: 1 } }]] } })
                 )
-                expect(yield* playlist({ entries: { equals: [entry] } })).toEqual([])
+                expect(yield* playlist({ entries: { equals: [entry] } })).toEqual(["road-trip"])
             })
         )
 

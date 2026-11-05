@@ -200,13 +200,41 @@ describe("Model checks", () => {
         ])
     })
 
-    it("blocks reserved and repeated Type names, and reserved field names", () => {
+    it("blocks reserved and repeated Type names, and reserved field names in every struct a where reads", () => {
         const name: string = "query"
         expect(reasons(Umwelt.type(name, {}))).toEqual([{ kind: "reservedTypeName", type: "query" }])
         expect(reasons(Track(), Track())).toEqual([{ kind: "duplicateTypeName", type: "Track" }])
         expect(reasons(Umwelt.type("A", { AND: Schema.String, OR: Schema.String }))).toEqual([
             { kind: "reservedFieldName", type: "A", field: "AND" },
             { kind: "reservedFieldName", type: "A", field: "OR" }
+        ])
+        const Step = Schema.Struct({ NOT: Schema.Boolean })
+        const nested = Umwelt.type("B", {
+            steps: Schema.Array(Step),
+            gone: Schema.NullOr(Schema.Union([Schema.Struct({ AND: Schema.String }), Step])),
+            meta: Schema.Record(Schema.String, Schema.Struct({ OR: Schema.String }))
+        })
+        expect(reasons(nested)).toEqual([
+            { kind: "reservedFieldName", type: "B", field: "steps[].NOT" },
+            { kind: "reservedFieldName", type: "B", field: "gone.AND" },
+            { kind: "reservedFieldName", type: "B", field: "gone.NOT" }
+        ])
+    })
+
+    it("reserves field names where the compiler reads them: arrays of arrays too; recursive schemas resolve", () => {
+        const grid = Umwelt.type("Grid", { cells: Schema.Array(Schema.Array(Schema.Struct({ AND: Schema.String }))) })
+        expect(reasons(grid)).toEqual([{ kind: "reservedFieldName", type: "Grid", field: "cells[][].AND" }])
+        type Nest = readonly Nest[] | null
+        const Nest: Schema.Codec<Nest> = Schema.suspend((): Schema.Codec<Nest> => Schema.NullOr(Schema.Array(Nest)))
+        expect(reasons(Umwelt.type("Nested", { nest: Nest }))).toEqual([])
+        type Node = { readonly OR: string; readonly children: readonly Node[] }
+        const Node: Schema.Codec<Node> = Schema.Struct({
+            OR: Schema.String,
+            children: Schema.Array(Schema.suspend((): Schema.Codec<Node> => Node))
+        })
+        expect(reasons(Umwelt.type("Tree", { root: Node }))).toEqual([
+            { kind: "reservedFieldName", type: "Tree", field: "root.OR" },
+            { kind: "reservedFieldName", type: "Tree", field: "root.children[].OR" }
         ])
     })
 

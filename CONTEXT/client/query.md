@@ -14,7 +14,7 @@ type QueryInput<T extends AnyType, I = {}> = {
   include?: I
 }
 
-/** Filters by payload field values; follows Prisma's `where`, relation filters included. Never empty: at least one condition at every level. Field names `AND`, `OR`, `NOT` are Check's `reservedFieldName`, see Type. */
+/** Filters by payload field values; follows Prisma's `where`, relation filters included. Never empty: at least one condition at every level. Field names `AND`, `OR`, `NOT`, in every struct a where reads, are Check's `reservedFieldName`, see Type. */
 type Where<T extends AnyType> = AtLeastOne<
   & { [F in keyof Payload<T>]?: F extends RelationSlot<T> ? RelationFilter<T, F> : WhereField<Payload<T>[F]> }
   /** Times Umwelt sets, see Object; like a required Date field. Any other symbol key fails with ValidationFailed. */
@@ -26,10 +26,19 @@ type Where<T extends AnyType> = AtLeastOne<
     }
 >
 
-/** Scalar field (number, string, boolean, Date, null): bare value or FieldFilter<V>. Object and array fields: FieldFilter<V> only, so `{ equals: value }` stays unambiguous. Optional field also takes `Umwelt.absent`, see Write: Objects without the field. */
+/** Scalar field (number, string, boolean, Date, null): bare value or FieldFilter<V>. Object and array fields: operators only, FieldFilter<V> and NestedFilter<V>, so `{ equals: value }` stays unambiguous. Optional field also takes `Umwelt.absent`, see Write: Objects without the field. */
 type WhereField<V>
 
-/** Filters through the relation with the target's `where`: `is`, `isNot` on `one`; `some`, `every`, `none` on `many`; at least one, nesting at any depth. Naming only Identity fields matches the stored reference itself, without reading the target. */
+/**
+ * Filters into values with RelationFilter's words: `is`, `isNot` on structs take ValueWhere; `some`, `every`, `none` on arrays take per element ValueWhere for structs, else WhereField of the element, arrays of arrays included. Records and values mixing structs, arrays, and scalars take none, only `equals` and `in`: TypeScript rejects, runtime fails with ValidationFailed. Runtime also rejects where TypeScript cannot tell: records with keys other than plain strings, like template literals; values stored in another shape than their type, like classes and transformed structs or arrays.
+ * Value that is no object, JSON null and absent included, matches no ValueWhere: `is` false, `isNot` true. Value that is no array has no elements: `some` false, `every`, `none` true.
+ */
+type NestedFilter<V>
+
+/** Where over a struct value, with the same rules as Where on an Object: WhereField per field, `Umwelt.absent` on optional fields, AND, OR, NOT, at least one. A union of structs is one struct over all member keys, its fields AND-ed. A field is the union of its types across the members holding it, taking what a field of that union takes: in `{ at: string } | { at: { by: string } }`, `at` takes `equals`, `in`, no `is`. It is optional when a member lacks it or declares it optional. A condition on it is read in each member's encoding and OR-ed: an operand an encoding cannot take is false there, one no encoding takes fails with ValidationFailed; `isNot`, `every`, `none` negate that one condition. AND, OR, NOT combine wheres over the whole value. Relation fields inside values compare stored Identity. Times only on Objects: TypeScript rejects them here, runtime fails with ValidationFailed. */
+type ValueWhere<V>
+
+/** Filters through the relation with the target's `where`: `is`, `isNot` on `one`; `some`, `every`, `none` on `many`; at least one, nesting at any depth. Naming only Identity fields matches the stored reference itself, without reading the target. Optional relation field also takes `Umwelt.absent`. */
 type RelationFilter<T extends AnyType, S extends RelationSlot<T>>
 
 /** Operators per field type, at least one. open: full operator set, follows Prisma. */
@@ -142,7 +151,10 @@ umwelt.Track.query({ where: { title: { contains: "Night Drive" }, OR: [{ slug: "
 // relation field: filter through it into the target; Identity fields only means the stored reference
 umwelt.Play.query({ where: { track: { is: { title: { contains: "Night Drive" } } } } })
 umwelt.Playlist.query({ where: { tracks: { some: { slug: "night-drive" } } } })
-// times Umwelt sets: symbol keys, at every level of where and in orderBy
+// struct and array values: same words, at any depth; scalar elements take a value or operators
+umwelt.Track.query({ where: { release: { is: { label: "Night Records", genres: { some: "ambient" } } } } })
+umwelt.Track.query({ where: { release: { is: { credits: { none: { role: "producer", NOT: { name: { contains: "Lu" } } } } } } } })
+// times Umwelt sets: symbol keys, at every level of where on Objects, and in orderBy
 umwelt.Track.query({ where: { [Umwelt.changedAt]: { gt: yesterday } }, orderBy: { [Umwelt.createdAt]: "desc" }, take: 20 })
 umwelt.Play.query({ where: { track: { is: { [Umwelt.changedAt]: { gt: yesterday } } } } })
 // one field per entry, list order; page by take and skip
@@ -159,6 +171,12 @@ umwelt.Track.query({ where: {} })
 umwelt.Track.query({ where: { title: Umwelt.absent } })
 // @ts-expect-error `some` on `one` field
 umwelt.Play.query({ where: { track: { some: { slug: "night-drive" } } } })
+// @ts-expect-error `some` on struct value
+umwelt.Track.query({ where: { release: { some: { label: "Night Records" } } } })
+// @ts-expect-error scalar element takes value or operators, not where
+umwelt.Track.query({ where: { release: { is: { genres: { some: { label: "ambient" } } } } } })
+// @ts-expect-error time inside value
+umwelt.Track.query({ where: { release: { is: { [Umwelt.createdAt]: { gt: yesterday } } } } })
 // @ts-expect-error time compares with Date
 umwelt.Track.query({ where: { [Umwelt.changedAt]: { gt: "yesterday" } } })
 // @ts-expect-error `Umwelt.absent` on time

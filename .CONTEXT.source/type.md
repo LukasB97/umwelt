@@ -60,7 +60,7 @@ Schema is Effect Schema of payload; nested structures, arrays, unions, and recur
 Payload is schema's `Type` side, like `Date`.
 Stored content is encoded side of `Schema.toCodecJson(schema)`, JSON; `Schema.toJsonSchemaDocument` with `includeAnnotationKey` describes it, and that form lives in [Migrations](model.md).
 Schema is invalid, and [Check](client/check.md) blocks it with `invalidSchema`, when it has no JSON codec, exports as opaque `{}`, or uses `Schema.optional` or `Schema.UndefinedOr`.
-Field names `AND`, `OR`, `NOT` belong to [Query](client/query.md); Check blocks them with `reservedFieldName`.
+Field names `AND`, `OR`, `NOT` belong to [Query](client/query.md); Check blocks them with `reservedFieldName` in every struct a where reads, at their path like `steps[].AND`.
 Optional field is `Schema.optionalKey`: key absent, since JSON has no `undefined`; [Write](client/write.md) owns removing fields.
 Schema checks like `Schema.isGreaterThan(0)` are part of schema; TypeScript cannot express them, [Client](client/index.md) owns where they are checked.
 

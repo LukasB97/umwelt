@@ -5,6 +5,7 @@ import type { ReservedTypeName } from "../declaration.ts"
 import type { BlockingReason } from "../errors.ts"
 import { isSchema, list, type JsonSchema } from "../migration.ts"
 import type { ResolvedModel, ResolvedType } from "../resolve.ts"
+import { domainsOf, shapeOf, type Domain } from "../values.ts"
 
 const reservedTypeNames: ReadonlySet<string> = new Set<ReservedTypeName>([
     "write",
@@ -59,6 +60,23 @@ const validKey = ({ type }: ResolvedType) =>
         return field !== undefined && stored(field.ast) === stored(schema.ast)
     })
 
+/**
+ * `AND`, `OR`, `NOT` as field names in any struct a where reads, at their path like `steps[].AND`: fields of structs and
+ * elements of arrays, as `shapeOf` reads them. A domain whose schemas were all entered on the path is not entered
+ * again, so recursion ends.
+ */
+const reservedPaths = (domain: Domain, path: string, entered: ReadonlySet<SchemaAST.AST>): readonly string[] => {
+    if (domain.encodings.every((ast) => entered.has(ast))) return []
+    const inner = new Set([...entered, ...domain.encodings])
+    const shape = shapeOf(domain)
+    if (shape.kind === "array") return reservedPaths(shape.elements, `${path}[]`, inner)
+    if (shape.kind === "other") return []
+    return [...domainsOf(shape.members)].flatMap(([name, field]) => {
+        const at = path === "" ? name : `${path}.${name}`
+        return [...(reservedFieldNames.has(name) ? [at] : []), ...reservedPaths(field, at, inner)]
+    })
+}
+
 const when = (condition: boolean, reason: BlockingReason): readonly BlockingReason[] => (condition ? [reason] : [])
 
 /** What the Model's own checks read: Types as given, and resolved by name. */
@@ -99,9 +117,9 @@ const typeReasons = (model: Declared, resolved: ResolvedType): readonly Blocking
         ...when(!validKey(resolved), { kind: "invalidUniqueKey", type: name }),
         ...when(reservedTypeNames.has(name), { kind: "reservedTypeName", type: name }),
         ...when(repeated, { kind: "duplicateTypeName", type: name }),
-        ...Object.keys(type["~fields"])
-            .filter((field) => reservedFieldNames.has(field))
-            .map((field): BlockingReason => ({ kind: "reservedFieldName", type: name, field })),
+        ...reservedPaths({ encodings: [resolved.payload.ast], optional: false }, "", new Set()).map(
+            (field): BlockingReason => ({ kind: "reservedFieldName", type: name, field })
+        ),
         ...relationReasons(model, resolved),
         ...ambiguousReasons(resolved),
         ...recursiveReasons(resolved),

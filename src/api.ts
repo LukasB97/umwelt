@@ -81,11 +81,13 @@ type RelationMany<Ts extends Model, T extends AnyType, S extends RelationSlot<T>
 /** Prisma's where with relation filters: `is`/`isNot` on one, `some`/`every`/`none` on many, each taking the target's where. */
 export type Where<Ts extends Model, T extends AnyType> = AtLeastOne<
     {
-        [F in keyof Payload<Ts, T>]?: F extends OneSlot<T>
-            ? RelationOne<Ts, T, F>
-            : F extends RelationSlot<T>
-              ? RelationMany<Ts, T, F>
-              : WhereField<Payload<Ts, T>[F]> | (F extends OptionalKeys<Payload<Ts, T>> ? Absent : never)
+        [F in keyof Payload<Ts, T>]?:
+            | (F extends OneSlot<T>
+                  ? RelationOne<Ts, T, F>
+                  : F extends RelationSlot<T>
+                    ? RelationMany<Ts, T, F>
+                    : WhereField<Payload<Ts, T>[F]>)
+            | (F extends OptionalKeys<Payload<Ts, T>> ? Absent : never)
     } & TimeWhere & {
             AND?: readonly [Where<Ts, T>, ...Where<Ts, T>[]]
             OR?: readonly [Where<Ts, T>, ...Where<Ts, T>[]]

@@ -137,6 +137,20 @@ describe("include", () => {
             })
         )
 
+        it.effect("absence of an optional relation field is a field condition, also inside RelationField", () =>
+            Effect.gen(function* () {
+                const { objects } = yield* umwelt.Playlist.query({ where: { opener: Umwelt.absent } })
+                expect(names(objects)).toEqual(["chill"])
+                const opened = yield* umwelt.Playlist.query({ where: { NOT: { opener: Umwelt.absent } } })
+                expect(names(opened.objects)).toEqual(["road-trip"])
+                const tracks = yield* umwelt.Track.query({
+                    orderBy: { slug: "asc" },
+                    include: { unopened: Playlist.fields.tracks.where({ opener: Umwelt.absent }) }
+                })
+                expect(tracks.objects.map(({ relations }) => names(relations.unopened))).toEqual([[], [], ["chill"]])
+            })
+        )
+
         it.effect("nests include at any depth, forwards and backwards", () =>
             Effect.gen(function* () {
                 const { objects } = yield* umwelt.Playlist.query({

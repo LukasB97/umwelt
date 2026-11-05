@@ -19,6 +19,7 @@ export type {
     SortableKeys,
     Type,
     TypeName,
+    ValueWhere,
     WhereField
 } from "./declaration.ts"
 export type {

@@ -83,17 +83,52 @@ export type OneSlot<T extends AnyType> = {
 export type TargetName<T extends AnyType, S extends RelationSlot<T>> = SlotInfo<T["~fields"][S]>["target"]
 
 type Scalar = string | number | boolean | Date | null
-export type FieldFilter<V> = AtLeastOne<
-    { equals?: V; in?: readonly V[] } & (NonNullable<V> extends number | string | Date
-        ? { lt?: NonNullable<V>; gt?: NonNullable<V> }
-        : {}) &
-        (NonNullable<V> extends string ? { contains?: string } : {})
->
-/** Scalar field: bare value or operators. Object and array fields: operators only. */
+type FieldOperators<V> = { equals?: V; in?: readonly V[] } & (NonNullable<V> extends number | string | Date
+    ? { lt?: NonNullable<V>; gt?: NonNullable<V> }
+    : {}) &
+    (NonNullable<V> extends string ? { contains?: string } : {})
+export type FieldFilter<V> = AtLeastOne<FieldOperators<V>>
+/** Members with a string index signature: records, which are no structs. */
+type Indexed<V> = V extends unknown ? (string extends keyof V ? V : never) : never
+/** Structs only, neither arrays, Dates, relation placeholders, nor records. */
+type IsObject<V> = [V] extends [object]
+    ? [Extract<V, Date | readonly unknown[] | Reference<string>> | Indexed<V>] extends [never]
+        ? true
+        : false
+    : false
+/** Per element: a where over a struct element, else what a field holding the element takes. */
+type ElementFilter<E> = IsObject<NonNullable<E>> extends true ? ValueWhere<NonNullable<E>> : WhereField<E>
+/** `is`, `isNot` on struct values, `some`, `every`, `none` on arrays; neither on other values. */
+type NestedFilter<V> = [V] extends [readonly (infer E)[]]
+    ? { some?: ElementFilter<E>; every?: ElementFilter<E>; none?: ElementFilter<E> }
+    : IsObject<V> extends true
+      ? { is?: ValueWhere<V>; isNot?: ValueWhere<V> }
+      : {}
+/** Scalar field: bare value or operators. Object and array fields: operators only, nested filters included. */
 export type WhereField<V> =
     NonNullable<V> extends Scalar
         ? Exclude<V, undefined> | FieldFilter<Exclude<V, undefined>>
-        : FieldFilter<Exclude<V, undefined>>
+        : AtLeastOne<FieldOperators<Exclude<V, undefined>> & NestedFilter<NonNullable<V>>>
+/** Field names across the members of P; JSON has no symbol keys. */
+type MemberKeys<P> = P extends unknown ? Exclude<keyof P, symbol> : never
+/** Values of field K across the members of P holding it. */
+type MemberField<P, K> = P extends unknown ? (K extends keyof P ? P[K] : never) : never
+/** `true` when some member of P lacks K or declares it optional. */
+type MayLack<P, K> = P extends unknown ? (K extends keyof P ? (K extends OptionalKeys<P> ? true : never) : true) : never
+/**
+ * Where over a struct value, a union of structs too: one object type over all member keys, each field WhereField of
+ * its values across the members, `Umwelt.absent` when some member lacks it or declares it optional; AND, OR, NOT over
+ * the whole value. No times: they belong to Objects.
+ */
+export type ValueWhere<P> = AtLeastOne<
+    {
+        [K in MemberKeys<P>]?: WhereField<MemberField<P, K>> | ([MayLack<P, K>] extends [never] ? never : Absent)
+    } & {
+        AND?: readonly [ValueWhere<P>, ...ValueWhere<P>[]]
+        OR?: readonly [ValueWhere<P>, ...ValueWhere<P>[]]
+        NOT?: ValueWhere<P>
+    }
+>
 /** `Umwelt.createdAt` and `Umwelt.changedAt` as `where` keys: like a required Date field. */
 export type TimeWhere = { [K in CreatedAt | ChangedAt]?: WhereField<Date> }
 /** Where over an unresolved payload, for RelationField outside the Client; relation fields are unusable there. */
