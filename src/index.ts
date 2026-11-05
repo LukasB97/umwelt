@@ -1,5 +1,6 @@
 export * as Umwelt from "./umwelt.ts"
 export type { Absent } from "./absent.ts"
+export type { ChangedAt, CreatedAt } from "./times.ts"
 export type {
     AnyType,
     Cursor,

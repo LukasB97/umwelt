@@ -112,6 +112,7 @@ describe("get", () => {
                 const id = yield* track("e")
                 for (const input of [
                     {},
+                    { id, [Symbol("stray")]: true },
                     { id, ids: [id] },
                     { ids: [] },
                     { ids: [id, 1] },

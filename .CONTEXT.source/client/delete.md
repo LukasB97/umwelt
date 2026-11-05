@@ -62,6 +62,7 @@ declare const playId: ObjectId<typeof Play>
 
 // selection; nothing is deleted when content no longer matches
 umwelt.Play.delete({ where: { at: { lt: cutoff } } })
+umwelt.Play.delete({ where: { [Umwelt.createdAt]: { lt: cutoff } } })
 // by Object ID
 umwelt.Play.delete({ ids: [playId] })
 // several Types, every Object

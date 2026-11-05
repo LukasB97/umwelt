@@ -213,6 +213,17 @@ describe("write", () => {
                 const play = yield* umwelt.Play.write({ data: { track: { slug: "night-drive" }, queue: [], at } })
                 yield* invalid({ type: Track, data: nightDrive, extra: true })
                 yield* invalid({ type: Track, data: { ...nightDrive, extra: true } })
+                const stray = Symbol("stray")
+                yield* invalid({ type: Track, data: nightDrive, [stray]: true })
+                yield* invalid({ type: Track, data: { ...nightDrive, [stray]: true } })
+                yield* invalid({
+                    type: Playlist,
+                    data: {
+                        name: "road-trip",
+                        tracks: [],
+                        entries: [{ track: { slug: "night-drive" }, rating: 5, [stray]: 1 }]
+                    }
+                })
                 yield* invalid({ type: Track, data: nightDrive, mustExist: true, mustNotExist: true })
                 yield* invalid({ type: Track, data: nightDrive, mustMatch: { title: "Night Drive" }, mustExist: true })
                 yield* invalid({ type: Track, data: nightDrive, mustExist: false })
@@ -408,7 +419,9 @@ describe("write", () => {
                     sql.withTransaction(
                         Effect.gen(function* () {
                             const result = yield* effect
-                            const [row] = yield* sql<{ now: string }>`select to_jsonb(now()) #>> '{}' as now`
+                            const [row] = yield* sql<{
+                                now: string
+                            }>`select to_jsonb(now()::timestamptz(3)) #>> '{}' as now`
                             return [result, new Date(row?.now ?? "")] as const
                         })
                     )

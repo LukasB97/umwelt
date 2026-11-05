@@ -1,17 +1,21 @@
 /**
- * `where` to SQL over jsonb, shared by Query and Delete. Every predicate is two-valued, so NOT and `every` read plainly.
- * Field values are encoded with the field's JSON codec and compared as jsonb; absent fields are SQL NULL, JSON null is `'null'`.
+ * `where` to SQL, shared by Query and Delete. Every predicate is two-valued, so NOT and `every` read plainly.
+ * Field values are encoded with the field's JSON codec and compared as jsonb; absent fields are SQL NULL, JSON null is
+ * `'null'`. Times compare as their columns.
  */
 import { Effect, SchemaAST, type Schema } from "effect"
 import type { Statement } from "effect/sql"
 import type { ValidationFailed } from "./errors.ts"
 import { absent } from "./absent.ts"
-import { encode, givenEntries, invalid, isRecord, optionalFields, type Input } from "./input.ts"
+import { encode, entriesOf, givenWhere, invalid, isRecord, optionalFields } from "./input.ts"
 import type { ResolvedModel, ResolvedType } from "./resolve.ts"
 import { umweltSql } from "./storage/tables.ts"
+import { timeColumn } from "./times.ts"
 
 type Fragment = Statement.Fragment
 type Scope = { readonly model: ResolvedModel; readonly sql: Statement.Constructor; readonly depth: number }
+/** What a level of `where` reads: a jsonb expression, and the Object's row unless that is a stored reference. */
+type Base = { readonly json: Fragment; readonly row: Fragment | undefined }
 type Kind = "number" | "string" | "date"
 /** A payload field: JSON codec, and the kinds of its values when operators may compare them. */
 type Field = { readonly codec: Schema.Codec<unknown, unknown>; readonly kinds: ReadonlySet<Kind> | undefined }
@@ -73,67 +77,133 @@ export const elementsOf = (sql: Statement.Constructor, json: Fragment) =>
 const at = (scope: Scope, base: Fragment, key: string) => scope.sql`(${base} -> ${key}::text)`
 
 /**
- * Condition on `payload`, a jsonb expression of an Object of `type`, like `o.payload`.
- * Fails with ValidationFailed on keys the types do not allow, empty levels, and values that do not fit the field.
+ * Condition on `row`, an alias of `umwelt_object` holding an Object of `type`, like `o`. `where` is taken as given
+ * once, so every walk below sees the same keys. Fails with ValidationFailed on keys the types do not allow, empty
+ * levels, and values that do not fit the field.
  */
-export const compileWhere = (model: ResolvedModel, type: ResolvedType, where: unknown, payload: Fragment) =>
+export const compileWhere = (model: ResolvedModel, type: ResolvedType, where: unknown, row: Fragment) =>
     Effect.gen(function* () {
         const sql = yield* umweltSql
-        return yield* whereOf({ model, sql, depth: 0 }, type, where, payload)
+        const given = yield* givenWhere(where, `where on ${type.name}`)
+        return yield* whereOf({ model, sql, depth: 0 }, type, given, { json: sql`${row}.payload`, row })
     })
 
 const whereOf = (
     scope: Scope,
     type: ResolvedType,
     where: unknown,
-    base: Fragment
+    base: Base
 ): Effect.Effect<Fragment, ValidationFailed> =>
     Effect.gen(function* () {
-        const entries = isRecord(where) ? givenEntries(where) : []
+        const entries = isRecord(where) ? entriesOf(where) : []
         if (entries.length === 0) return yield* invalid(`where on ${type.name} needs at least one condition`)
-        const conditions = yield* Effect.forEach(entries, ([key, value]) => conditionOf(scope, type, key, value, base))
+        const conditions = yield* Effect.forEach(entries, ([key, value]) =>
+            typeof key === "symbol"
+                ? timeFilter(scope, type, key, value, base)
+                : conditionOf(scope, type, key, value, base)
+        )
         return scope.sql.and(conditions)
     })
 
-const listOf = (scope: Scope, type: ResolvedType, key: string, value: unknown, base: Fragment) =>
+const listOf = (scope: Scope, type: ResolvedType, key: string, value: unknown, base: Base) =>
     Array.isArray(value) && value.length > 0
         ? Effect.forEach(value, (where) => whereOf(scope, type, where, base))
         : invalid(`${key} on ${type.name} takes a non-empty list`)
 
-const conditionOf = (scope: Scope, type: ResolvedType, key: string, value: unknown, base: Fragment) => {
+const conditionOf = (scope: Scope, type: ResolvedType, key: string, value: unknown, base: Base) => {
     const { sql } = scope
     if (key === "AND") return Effect.map(listOf(scope, type, key, value, base), sql.and)
     if (key === "OR") return Effect.map(listOf(scope, type, key, value, base), sql.or)
     if (key === "NOT") return Effect.map(whereOf(scope, type, value, base), (where) => sql`(not ${where})`)
     if (value === absent) {
         return optionalFields(type).has(key)
-            ? Effect.succeed(sql`(${at(scope, base, key)} is null)`)
+            ? Effect.succeed(sql`(${at(scope, base.json, key)} is null)`)
             : invalid(`${type.name}.${key} is required: no absent`)
     }
     const slot = type.slots.get(key)
-    if (slot !== undefined) return relationFilter(scope, slot, key, value, at(scope, base, key))
+    if (slot !== undefined) return relationFilter(scope, slot, key, value, at(scope, base.json, key))
     const codec = type.fields.get(key)
     if (codec === undefined) return invalid(`${type.name} has no field ${key}`)
-    return fieldFilter(scope, { codec, kinds: kindsOf(type, key) }, key, value, base)
+    return fieldFilter(scope, { codec, kinds: kindsOf(type, key) }, key, value, base.json)
 }
 
-// ---------------------------------------------------------------- fields
+// ---------------------------------------------------------------- filters
+
+type Operator = "equals" | "lt" | "gt" | "contains"
+
+/**
+ * One value's filter, on a field or a time: a bare value means `equals`; operators at least one, all must hold; `in`
+ * is `equals` on any of its items, none for an empty list. `test` turns one operator and its operand into a condition.
+ */
+const filterOf = (
+    scope: Scope,
+    key: string,
+    value: unknown,
+    test: (operator: Operator, operand: unknown) => Effect.Effect<Fragment, ValidationFailed>
+): Effect.Effect<Fragment, ValidationFailed> => {
+    const { sql } = scope
+    if (!isRecord(value)) return test("equals", value)
+    const entries = entriesOf(value)
+    if (entries.length === 0) return invalid(`${key} needs at least one operator`)
+    return Effect.map(
+        Effect.forEach(entries, ([operator, operand]) => {
+            switch (operator) {
+                case "in":
+                    return Array.isArray(operand)
+                        ? Effect.map(
+                              Effect.forEach(operand, (item) => test("equals", item)),
+                              (items) => (items.length === 0 ? sql`false` : sql.or(items))
+                          )
+                        : invalid(`${key}.in takes a list`)
+                case "equals":
+                case "lt":
+                case "gt":
+                case "contains":
+                    return test(operator, operand)
+                default:
+                    return invalid(`${key} has no operator ${String(operator)}`)
+            }
+        }),
+        sql.and
+    )
+}
+
+/** Time key on the Object's row: Dates only, no `contains`. The columns are never null. */
+const timeFilter = (scope: Scope, type: ResolvedType, key: symbol, value: unknown, base: Base) => {
+    const { sql } = scope
+    const column = timeColumn(key)
+    if (column === undefined) return invalid(`where on ${type.name} takes no key ${String(key)}`)
+    if (base.row === undefined) return Effect.die(new Error(`${String(key)} read from a stored reference`))
+    const time = sql`${base.row}.${sql.literal(column)}`
+    const signs = { equals: "=", lt: "<", gt: ">" } as const
+    return filterOf(scope, String(key), value, (operator, operand) => {
+        if (operator === "contains") return invalid(`${String(key)} takes no contains`)
+        return operand instanceof Date && !Number.isNaN(operand.getTime())
+            ? Effect.succeed(sql`${time} ${sql.literal(signs[operator])} ${operand.toISOString()}::timestamptz`)
+            : invalid(`${String(key)} takes a Date`)
+    })
+}
+
+/** Payload field: a scalar, or operators, as its kinds allow. */
+const fieldFilter = (scope: Scope, field: Field, key: string, value: unknown, base: Fragment) => {
+    const { sql } = scope
+    if (!isRecord(value) && !isScalar(value)) return invalid(`${key} takes a scalar or operators`)
+    const fragment = at(scope, base, key)
+    return filterOf(scope, key, value, (operator, operand) => {
+        if (operator === "equals") return equals(scope, field, key, operand, base)
+        if (!allows(field, operator)) return invalid(`${key} takes no ${operator}`)
+        if (operator !== "contains") return compare(scope, field, key, operator, operand, fragment)
+        return typeof operand === "string"
+            ? Effect.succeed(
+                  sql`coalesce(jsonb_typeof(${fragment}) = 'string' and (${fragment} #>> '{}') like ${like(operand)}, false)`
+              )
+            : invalid(`${key}.contains takes a string`)
+    })
+}
 
 const isScalar = (value: unknown) => value === null || value instanceof Date || typeof value !== "object"
 
 const encoded = (field: Field, key: string, value: unknown) => encode(field.codec, value, key, { disableChecks: true })
-
-const fieldFilter = (
-    scope: Scope,
-    field: Field,
-    key: string,
-    value: unknown,
-    base: Fragment
-): Effect.Effect<Fragment, ValidationFailed> => {
-    if (isRecord(value)) return operators(scope, field, key, value, base)
-    if (!isScalar(value)) return invalid(`${key} takes a scalar or operators`)
-    return equals(scope, field, key, value, base)
-}
 
 /**
  * Containment beside equality, implied by it, lets the payload index serve equality. `base` is SQL NULL only where
@@ -141,7 +211,7 @@ const fieldFilter = (
  */
 const equals = (scope: Scope, field: Field, key: string, value: unknown, base: Fragment) => {
     const { sql } = scope
-    if (value === undefined || value === absent) return invalid(`${key} takes a value`)
+    if (value === absent) return invalid(`${key} takes a value`)
     return Effect.map(
         encoded(field, key, value),
         (json) => sql`(${base} @> ${JSON.stringify({ [key]: json })}::jsonb
@@ -155,43 +225,6 @@ const allows = (field: Field, operator: "lt" | "gt" | "contains") =>
         ? field.kinds?.size === 1 && field.kinds.has("string")
         : field.kinds !== undefined && field.kinds.size > 0
 
-const operators = (scope: Scope, field: Field, key: string, filter: Input, base: Fragment) => {
-    const { sql } = scope
-    const fragment = at(scope, base, key)
-    const entries = givenEntries(filter)
-    if (entries.length === 0) return invalid(`${key} needs at least one operator`)
-    return Effect.map(
-        Effect.forEach(entries, ([operator, operand]): Effect.Effect<Fragment, ValidationFailed> => {
-            switch (operator) {
-                case "equals":
-                    return equals(scope, field, key, operand, base)
-                case "in":
-                    return Array.isArray(operand)
-                        ? Effect.map(
-                              Effect.forEach(operand, (item) => equals(scope, field, key, item, base)),
-                              (items) => (items.length === 0 ? sql`false` : sql.or(items))
-                          )
-                        : invalid(`${key}.in takes a list`)
-                case "lt":
-                case "gt":
-                    return allows(field, operator)
-                        ? compare(scope, field, key, operator, operand, fragment)
-                        : invalid(`${key} takes no ${operator}`)
-                case "contains":
-                    if (!allows(field, operator)) return invalid(`${key} takes no contains`)
-                    return typeof operand === "string"
-                        ? Effect.succeed(
-                              sql`coalesce(jsonb_typeof(${fragment}) = 'string' and (${fragment} #>> '{}') like ${like(operand)}, false)`
-                          )
-                        : invalid(`${key}.contains takes a string`)
-                default:
-                    return invalid(`${key} has no operator ${operator}`)
-            }
-        }),
-        sql.and
-    )
-}
-
 const compare = (
     scope: Scope,
     field: Field,
@@ -200,7 +233,7 @@ const compare = (
     operand: unknown,
     fragment: Fragment
 ) => {
-    if (operand === null || operand === undefined) return invalid(`${key}.${operator} takes a value`)
+    if (operand === null) return invalid(`${key}.${operator} takes a value`)
     const { sql } = scope
     const sign = sql.literal(operator === "lt" ? "<" : ">")
     return Effect.map(encoded(field, key, operand), (json) => {
@@ -217,10 +250,10 @@ const like = (text: string) => `%${text.replaceAll(/[\\%_]/gu, (character) => `\
 
 const operatorsByCard = { one: ["is", "isNot"], many: ["some", "every", "none"] } as const
 
-/** Field names a where reads, through AND, OR, and NOT. */
-const fieldsOf = (where: unknown): readonly string[] =>
+/** Field names and time keys a where reads, through AND, OR, and NOT. */
+const fieldsOf = (where: unknown): readonly (string | symbol)[] =>
     isRecord(where)
-        ? Object.entries(where).flatMap(([key, value]) =>
+        ? entriesOf(where).flatMap(([key, value]) =>
               key === "AND" || key === "OR"
                   ? (Array.isArray(value) ? value : []).flatMap(fieldsOf)
                   : key === "NOT"
@@ -239,13 +272,16 @@ const relationFilter = (
     const target = scope.model.types.get(slot.target)
     if (target === undefined) return Effect.die(new Error(`relation ${key} targets unknown Type ${slot.target}`))
     const allowed: readonly string[] = operatorsByCard[slot.card]
-    const entries = isRecord(value) ? givenEntries(value) : []
+    const entries = isRecord(value) ? entriesOf(value) : []
     if (entries.length === 0) return invalid(`${key} takes ${allowed.join(", ")} with the target's where`)
     const inner = { ...scope, depth: scope.depth + 1 }
     return Effect.map(
         Effect.forEach(entries, ([operator, where]) => {
-            if (!allowed.includes(operator)) return invalid(`${key} has no relation filter ${operator}`)
-            const identityOnly = fieldsOf(where).every((field) => target.uniqueKey.includes(field))
+            if (typeof operator === "symbol" || !allowed.includes(operator))
+                return invalid(`${key} has no relation filter ${String(operator)}`)
+            const identityOnly = fieldsOf(where).every(
+                (field) => typeof field === "string" && target.uniqueKey.includes(field)
+            )
             return slot.card === "one"
                 ? oneFilter(inner, target, operator, where, reference, identityOnly)
                 : manyFilter(inner, target, operator, where, reference, identityOnly)
@@ -266,9 +302,9 @@ const oneFilter = (
     const { sql } = scope
     const row = sql.literal(`t${scope.depth}`)
     const matched = identityOnly
-        ? whereOf(scope, target, where, reference)
+        ? whereOf(scope, target, where, { json: reference, row: undefined })
         : Effect.map(
-              whereOf(scope, target, where, sql`${row}.payload`),
+              whereOf(scope, target, where, { json: sql`${row}.payload`, row }),
               (condition) =>
                   sql`exists (select 1 from umwelt_object ${row} where ${row}.type = ${target.name}::text and ${row}.identity = ${reference} and ${condition})`
           )
@@ -291,7 +327,7 @@ const manyFilter = (
     const rows = identityOnly
         ? items
         : sql`${items} join umwelt_object ${row} on ${row}.type = ${target.name}::text and ${row}.identity = ${item}.value`
-    const base = identityOnly ? sql`${item}.value` : sql`${row}.payload`
+    const base = identityOnly ? { json: sql`${item}.value`, row: undefined } : { json: sql`${row}.payload`, row }
     return Effect.map(whereOf(scope, target, where, base), (condition) =>
         operator === "some"
             ? sql`exists (select 1 from ${rows} where ${condition})`

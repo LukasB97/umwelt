@@ -12,42 +12,47 @@ export const invalid = (message: string) => Effect.fail(new ValidationFailed({ m
 export const isRecord = (value: unknown): value is Input =>
     typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype
 
-/** Entries of a record whose values are given: `undefined` means not given, as in JSON. */
-export const givenEntries = (value: Input) => Object.entries(value).filter(([, item]) => item !== undefined)
+/** Own entries of a record, string and symbol keys alike: every reader of `where` and `orderBy` sees the same keys. */
+export const entriesOf = (record: Input): readonly (readonly [string | symbol, unknown])[] =>
+    Reflect.ownKeys(record).map((key) => [key, Reflect.get(record, key)])
 
-/** The record when it is one and holds only allowed keys, without its `undefined` values. */
+/** The record when it is one and holds only allowed keys, without its `undefined` values; a symbol key is never allowed. */
 export const exact = (value: unknown, allowed: readonly string[], context: string) => {
     if (!isRecord(value)) return invalid(`${context} takes an object`)
-    const entries = givenEntries(value)
-    const wrong = entries.find(([key]) => !allowed.includes(key))
+    const entries = entriesOf(value).filter(([, item]) => item !== undefined)
+    const wrong = entries.find(([key]) => typeof key !== "string" || !allowed.includes(key))
     return wrong === undefined
         ? Effect.succeed(Object.fromEntries(entries))
-        : invalid(`${context} does not allow ${wrong[0]}`)
+        : invalid(`${context} does not allow ${String(wrong[0])}`)
 }
 
 /**
  * A payload value as given: `undefined` entries of objects are dropped at any depth; `undefined` inside arrays is
  * invalid, since JSON would turn it into null; `absent` below the top level is invalid.
  */
-export const givenValue = (item: unknown, at: string): Effect.Effect<unknown, ValidationFailed> => {
-    if (item === absent) return invalid(`${at}: absent is allowed on top-level optional fields only`)
-    if (Array.isArray(item)) return givenItems(item, at)
-    if (isRecord(item)) return givenRecord(item, at)
-    return Effect.succeed(item)
-}
+export const givenValue = (item: unknown, at: string) => given(item, at, false)
 
-const givenItems = (items: readonly unknown[], at: string) =>
-    Effect.forEach(items, (element, index) =>
-        element === undefined ? invalid(`${at}[${index}] is undefined`) : givenValue(element, `${at}[${index}]`)
-    )
+/** A `where` as given: like a payload value, but `absent` and symbol keys stay at any depth, as `where` reads them. */
+export const givenWhere = (item: unknown, at: string) => given(item, at, true)
 
-const givenRecord = (record: Input, at: string) =>
-    Effect.map(
-        Effect.forEach(givenEntries(record), ([key, element]) =>
-            Effect.map(givenValue(element, `${at}.${key}`), (clean) => [key, clean] as const)
+const given = (item: unknown, at: string, where: boolean): Effect.Effect<unknown, ValidationFailed> => {
+    if (item === absent && !where) return invalid(`${at}: absent is allowed on top-level optional fields only`)
+    if (Array.isArray(item)) {
+        return Effect.forEach(item, (element, index) =>
+            element === undefined ? invalid(`${at}[${index}] is undefined`) : given(element, `${at}[${index}]`, where)
+        )
+    }
+    if (!isRecord(item)) return Effect.succeed(item)
+    const entries = entriesOf(item).filter(([, value]) => value !== undefined)
+    const symbol = where ? undefined : entries.find(([key]) => typeof key === "symbol")
+    if (symbol !== undefined) return invalid(`${at} does not allow ${String(symbol[0])}`)
+    return Effect.map(
+        Effect.forEach(entries, ([key, value]) =>
+            Effect.map(given(value, `${at}.${String(key)}`, where), (clean) => [key, clean] as const)
         ),
-        (entries) => Object.fromEntries(entries)
+        Object.fromEntries
     )
+}
 
 /** The Type of the Client's Model that `type` is. */
 export const typeOf = (model: ResolvedModel, type: unknown) => {

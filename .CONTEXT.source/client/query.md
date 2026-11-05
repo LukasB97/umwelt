@@ -22,6 +22,8 @@ type QueryInput<T extends AnyType, I = {}> = {
 /** Filters by payload field values; follows Prisma's `where`, relation filters included. Never empty: at least one condition at every level. Field names `AND`, `OR`, `NOT` are Check's `reservedFieldName`, see Type. */
 type Where<T extends AnyType> = AtLeastOne<
   & { [F in keyof Payload<T>]?: F extends RelationSlot<T> ? RelationFilter<T, F> : WhereField<Payload<T>[F]> }
+  /** Times Umwelt sets, see Object; like a required Date field. Any other symbol key fails with ValidationFailed. */
+  & { [Umwelt.createdAt]?: WhereField<Date>; [Umwelt.changedAt]?: WhereField<Date> }
   & {
       AND?: readonly [Where<T>, ...Where<T>[]]
       OR?: readonly [Where<T>, ...Where<T>[]]
@@ -43,14 +45,14 @@ type FieldFilter<V> = AtLeastOne<
 >
 
 /**
- * Orders by sortable payload fields. One field per entry, since object keys carry no order; several fields as list, in list order: `[{ title: "asc" }, { slug: "desc" }]`.
- * `null` and absent values sort last for asc and desc. Type without sortable field takes no `orderBy`.
+ * Orders by sortable payload fields and times `Umwelt.createdAt`, `Umwelt.changedAt`. One field per entry, since object keys carry no order; several fields as list, in list order: `[{ title: "asc" }, { slug: "desc" }]`.
+ * `null` and absent values sort last for asc and desc.
  * Number fields sort and compare by numeric value, whatever their stored form, like `Infinity` or `NumberFromString`.
  * Without `orderBy`: root Objects and relations read backwards by Object ID, `many` fields in list order; every order ends there, so paging is stable.
  * `many` field holding same target twice yields it once, at first position.
  */
 type OrderBy<T extends AnyType> = OrderEntry<T> | readonly [OrderEntry<T>, ...OrderEntry<T>[]]
-type OrderEntry<T extends AnyType> = ExactlyOne<{ [F in SortableKeys<Payload<T>>]: "asc" | "desc" }>
+type OrderEntry<T extends AnyType> = ExactlyOne<{ [F in SortableKeys<Payload<T>> | typeof Umwelt.createdAt | typeof Umwelt.changedAt]: "asc" | "desc" }>
 
 /** Keys of P holding number, string, or Date, also nullable or optional; mixed unions and null-only fields are excluded. */
 type SortableKeys<P>
@@ -145,6 +147,9 @@ umwelt.Track.query({ where: { title: { contains: "Night Drive" }, OR: [{ slug: "
 // relation field: filter through it into the target; Identity fields only means the stored reference
 umwelt.Play.query({ where: { track: { is: { title: { contains: "Night Drive" } } } } })
 umwelt.Playlist.query({ where: { tracks: { some: { slug: "night-drive" } } } })
+// times Umwelt sets: symbol keys, at every level of where and in orderBy
+umwelt.Track.query({ where: { [Umwelt.changedAt]: { gt: yesterday } }, orderBy: { [Umwelt.createdAt]: "desc" }, take: 20 })
+umwelt.Play.query({ where: { track: { is: { [Umwelt.changedAt]: { gt: yesterday } } } } })
 // one field per entry, list order; page by take and skip
 umwelt.Track.query({ orderBy: [{ title: "asc" }, { slug: "desc" }], take: 20, skip: 40 })
 // `one` slot takes `true`; collection takes refinement
@@ -159,6 +164,12 @@ umwelt.Track.query({ where: {} })
 umwelt.Track.query({ where: { title: Umwelt.absent } })
 // @ts-expect-error `some` on `one` field
 umwelt.Play.query({ where: { track: { some: { slug: "night-drive" } } } })
+// @ts-expect-error time compares with Date
+umwelt.Track.query({ where: { [Umwelt.changedAt]: { gt: "yesterday" } } })
+// @ts-expect-error `Umwelt.absent` on time
+umwelt.Track.query({ where: { [Umwelt.createdAt]: Umwelt.absent } })
+// @ts-expect-error time and field in one orderBy entry
+umwelt.Track.query({ orderBy: { [Umwelt.createdAt]: "desc", title: "asc" } })
 // @ts-expect-error two fields in one orderBy entry
 umwelt.Track.query({ orderBy: { title: "asc", slug: "desc" } })
 // @ts-expect-error `Play.fields.track` points at Track, not Playlist

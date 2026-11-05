@@ -28,4 +28,4 @@ Type without unique key has no Identity: its Objects are found by `where` and ad
 ## Payload
 
 Payload is one Object's current content and follows Type schema; nothing else is in it.
-Umwelt sets `createdAt` on create and `changedAt` on every Write that changes content; both sit beside payload in results, and Deploy keeps them. Times are transaction time, so Writes in one host transaction share it.
+Umwelt sets `createdAt` on create and `changedAt` on every Write that changes content; both sit beside payload in results, and Deploy keeps them. Times are transaction time in milliseconds, so Writes in one host transaction share it and a time read back compares exactly. `Umwelt.createdAt` and `Umwelt.changedAt` name them in [Query](client/query.md)'s `where` and `orderBy`; being symbols, they never meet a payload field of same name.

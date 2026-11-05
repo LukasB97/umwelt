@@ -39,7 +39,7 @@ type Client<Ts extends Model> = {
 ## Operations
 
 Operations take only Types of the Client's Model.
-Runtime enforces what TypeScript cannot: schema checks like `Schema.isGreaterThan(0)` at Write; integers for `take` and `skip` at Query and Get; input matching exactly one member of its input type, so keys the types do not allow or conditions they keep apart, anywhere in input, are rejected with `ValidationFailed`, never dropped, since TypeScript object types are open and a variable with extra keys fits the type.
+Runtime enforces what TypeScript cannot: schema checks like `Schema.isGreaterThan(0)` at Write; integers for `take` and `skip` at Query and Get; input matching exactly one member of its input type, so keys the types do not allow, string or symbol, or conditions they keep apart, anywhere in input, are rejected with `ValidationFailed`, never dropped, since TypeScript object types are open and a variable with extra keys fits the type.
 Reads decode stored content without schema checks: Write and Deploy keep it valid.
 Effect's `SqlError` passes through every operation unchanged; failure kinds in the documents name Umwelt's own.
 Declarations are [Check](client/check.md)'s; their types help, exactness is not required there.

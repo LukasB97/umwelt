@@ -34,7 +34,8 @@ const applyPending = (model: ResolvedModel) =>
 
 /**
  * Holds the Model lock exclusively from before reading the Ledger to the end, so Object operations in flight finish first
- * and later ones see the new Ledger. Runs Check inside the transaction; any failure rolls back everything, the first layout included.
+ * and later ones see the new Ledger. Runs Check inside the transaction; any failure rolls back everything, the first
+ * layout included.
  */
 export const deploy = (model: ResolvedModel) =>
     Effect.gen(function* () {

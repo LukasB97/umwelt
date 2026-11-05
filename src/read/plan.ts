@@ -4,12 +4,15 @@
  */
 import { Effect } from "effect"
 import type { ValidationFailed } from "../errors.ts"
-import { exact, invalid, isRecord, type Input } from "../input.ts"
+import { entriesOf, exact, invalid, isRecord, type Input } from "../input.ts"
 import type { ResolvedModel, ResolvedType } from "../resolve.ts"
+import { timeColumn, type TimeColumn } from "../times.ts"
 import { isNumeric, kindsOf } from "../where.ts"
 
-/** `numeric`: the field holds numbers, sorted by numeric value whatever their stored form. */
-export type Order = { readonly field: string; readonly descending: boolean; readonly numeric: boolean }
+/** A payload field, or a time column. `numeric`: the field holds numbers, sorted by numeric value whatever their stored form. */
+export type Order =
+    | { readonly field: string; readonly descending: boolean; readonly numeric: boolean }
+    | { readonly column: TimeColumn; readonly descending: boolean }
 
 /** Selection inside one collection or the root; `cursor` is the Object ID to continue after. */
 export type Page = {
@@ -43,12 +46,20 @@ const cursorOf = (value: unknown) =>
 /** Orders by fields of one sort kind, number, string, or Date, also nullable; never by relation fields. */
 const sortable = (type: ResolvedType, field: string) => !type.slots.has(field) && kindsOf(type, field)?.size === 1
 
-const orderEntry = (type: ResolvedType, entry: unknown) => {
-    const [field, direction, ...rest] = isRecord(entry) ? Object.entries(entry).flat() : []
-    if (typeof field !== "string" || rest.length > 0 || (direction !== "asc" && direction !== "desc"))
+const orderEntry = (type: ResolvedType, entry: unknown): Effect.Effect<Order, ValidationFailed> => {
+    const entries = isRecord(entry) ? entriesOf(entry) : []
+    const [key, direction] = entries[0] ?? []
+    if (key === undefined || entries.length > 1 || (direction !== "asc" && direction !== "desc"))
         return invalid(`orderBy on ${type.name} takes one field per entry with "asc" or "desc"`)
-    if (!sortable(type, field)) return invalid(`${type.name} has no sortable field ${field}`)
-    return Effect.succeed({ field, descending: direction === "desc", numeric: isNumeric(kindsOf(type, field)) })
+    const descending = direction === "desc"
+    if (typeof key === "symbol") {
+        const column = timeColumn(key)
+        return column === undefined
+            ? invalid(`orderBy on ${type.name} takes no key ${String(key)}`)
+            : Effect.succeed({ column, descending })
+    }
+    if (!sortable(type, key)) return invalid(`${type.name} has no sortable field ${key}`)
+    return Effect.succeed({ field: key, descending, numeric: isNumeric(kindsOf(type, key)) })
 }
 
 const orderOf = (type: ResolvedType, orderBy: unknown) => {

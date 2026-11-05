@@ -56,7 +56,7 @@ const selectionOf = (model: ResolvedModel, types: readonly ResolvedType[], input
         if (!isRecord(input["where"])) return yield* invalid("Delete needs where, ids, or allowAll")
         const where = input["where"]
         const conditions = yield* Effect.forEach(types, (type) =>
-            Effect.map(compileWhere(model, type, where, sql`o.payload`), (condition) =>
+            Effect.map(compileWhere(model, type, where, sql.literal("o")), (condition) =>
                 sql.and([sql`o.type = ${type.name}`, condition])
             )
         )

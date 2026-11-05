@@ -140,6 +140,7 @@ describe("query", () => {
             Effect.gen(function* () {
                 for (const input of [
                     { nope: 1 },
+                    { [Symbol("stray")]: 1 },
                     { where: {} },
                     { where: { nope: 1 } },
                     { take: -1 },

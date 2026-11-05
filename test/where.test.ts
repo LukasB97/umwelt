@@ -48,7 +48,7 @@ const seedAll = Effect.gen(function* () {
 const select = (type: ResolvedType, label: string, where: unknown) =>
     Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient
-        const condition = yield* compileWhere(model, type, where, sql`o.payload`)
+        const condition = yield* compileWhere(model, type, where, sql.literal("o"))
         const rows = yield* sql<{ label: string }>`select o.payload ->> ${label}::text as label
             from umwelt_object o where o.type = ${type.name} and ${condition} order by 1`
         return rows.map((row) => row.label)
@@ -179,6 +179,31 @@ describe("where", () => {
                 )
                 expect(yield* playlist({ entries: { equals: [entry] } })).toEqual([])
             })
+        )
+
+        it.effect(
+            "undefined means not given: Identity fields with undefined beside them still read the reference",
+            () =>
+                Effect.gen(function* () {
+                    yield* seed(Playlist, { name: "lost", tracks: [{ slug: "gone" }, { slug: "slow-tide" }], tags: [] })
+                    for (const unset of [{ title: undefined }, { [Umwelt.createdAt]: undefined }]) {
+                        expect(yield* play({ track: { is: { slug: "gone", ...unset } } })).toEqual(["radio"])
+                        expect(yield* play({ track: { isNot: { slug: "gone", ...unset } } })).toEqual(["car", "mobile"])
+                        expect(yield* playlist({ tracks: { some: { slug: "gone", ...unset } } })).toEqual(["lost"])
+                        expect(yield* playlist({ tracks: { every: { slug: "slow-tide", ...unset } } })).toEqual([
+                            "chill",
+                            "focus"
+                        ])
+                        expect(yield* playlist({ tracks: { none: { slug: "gone", ...unset } } })).toEqual([
+                            "chill",
+                            "focus",
+                            "road-trip"
+                        ])
+                        expect(yield* play({ OR: [{ track: { is: { AND: [{ slug: "gone", ...unset }] } } }] })).toEqual(
+                            ["radio"]
+                        )
+                    }
+                })
         )
     })
 })

@@ -10,6 +10,7 @@ import type {
     OneSlot,
     OptionalKeys,
     OrderBy,
+    TimeWhere,
     Reference,
     RelationSlot,
     RequiredKeys,
@@ -85,11 +86,11 @@ export type Where<Ts extends Model, T extends AnyType> = AtLeastOne<
             : F extends RelationSlot<T>
               ? RelationMany<Ts, T, F>
               : WhereField<Payload<Ts, T>[F]> | (F extends OptionalKeys<Payload<Ts, T>> ? Absent : never)
-    } & {
-        AND?: readonly [Where<Ts, T>, ...Where<Ts, T>[]]
-        OR?: readonly [Where<Ts, T>, ...Where<Ts, T>[]]
-        NOT?: Where<Ts, T>
-    }
+    } & TimeWhere & {
+            AND?: readonly [Where<Ts, T>, ...Where<Ts, T>[]]
+            OR?: readonly [Where<Ts, T>, ...Where<Ts, T>[]]
+            NOT?: Where<Ts, T>
+        }
 >
 
 // ---------------------------------------------------------------- include

@@ -1,6 +1,7 @@
 /** Types for declaring a Model: Type, relations, and relation fields as values. */
 import type { Schema, SchemaAST } from "effect"
 import type { Absent } from "./absent.ts"
+import type { ChangedAt, CreatedAt } from "./times.ts"
 
 export type Simplify<T> = { [K in keyof T]: T[K] } & {}
 export type RequiredKeys<P> = { [K in keyof P]-?: {} extends Pick<P, K> ? never : K }[keyof P]
@@ -93,13 +94,15 @@ export type WhereField<V> =
     NonNullable<V> extends Scalar
         ? Exclude<V, undefined> | FieldFilter<Exclude<V, undefined>>
         : FieldFilter<Exclude<V, undefined>>
+/** `Umwelt.createdAt` and `Umwelt.changedAt` as `where` keys: like a required Date field. */
+export type TimeWhere = { [K in CreatedAt | ChangedAt]?: WhereField<Date> }
 /** Where over an unresolved payload, for RelationField outside the Client; relation fields are unusable there. */
 export type SimpleWhere<P> = AtLeastOne<
-    { [F in keyof P]?: WhereField<P[F]> | (F extends OptionalKeys<P> ? Absent : never) } & {
-        AND?: readonly [SimpleWhere<P>, ...SimpleWhere<P>[]]
-        OR?: readonly [SimpleWhere<P>, ...SimpleWhere<P>[]]
-        NOT?: SimpleWhere<P>
-    }
+    { [F in keyof P]?: WhereField<P[F]> | (F extends OptionalKeys<P> ? Absent : never) } & TimeWhere & {
+            AND?: readonly [SimpleWhere<P>, ...SimpleWhere<P>[]]
+            OR?: readonly [SimpleWhere<P>, ...SimpleWhere<P>[]]
+            NOT?: SimpleWhere<P>
+        }
 >
 /** Sort kind of a non-null value type: one of number, string, or Date; `never` for mixed unions and for nothing. */
 type SortKind<V> = [V] extends [never]
@@ -113,8 +116,8 @@ type SortKind<V> = [V] extends [never]
           : never
 /** Keys of P holding number, string, or Date, also nullable or optional; mixed unions and null-only fields are excluded. */
 export type SortableKeys<P> = { [K in keyof P]-?: [SortKind<NonNullable<P[K]>>] extends [never] ? never : K }[keyof P]
-/** One field per entry; several fields as list, in list order. */
-export type OrderEntry<P> = ExactlyOne<{ [F in SortableKeys<P>]: "asc" | "desc" }>
+/** One field or time per entry; several as list, in list order. */
+export type OrderEntry<P> = ExactlyOne<{ [F in SortableKeys<P> | CreatedAt | ChangedAt]: "asc" | "desc" }>
 export type OrderBy<P> = OrderEntry<P> | readonly [OrderEntry<P>, ...OrderEntry<P>[]]
 /** Object ID to continue after, exclusive, in the same `orderBy`. */
 export type Cursor<T> = ObjectId<T>

@@ -2,7 +2,8 @@
  * Umwelt's own tables. Hosts never see them, except `umwelt_object` for foreign keys on Object IDs.
  *
  * umwelt_object   id (Object ID, assigned by the database), type, identity (Identity as stored JSON, unique per type), payload,
- *                 created and changed (database time of create and of the last Write changing payload)
+ *                 created and changed (database time of create and of the last Write changing payload, in milliseconds,
+ *                 so a Date read from them compares exactly)
  * umwelt_history  previous full payloads of Objects whose Type keeps history, in change order
  * umwelt_ledger   applied Migrations: position, id, hash
  */
@@ -30,9 +31,11 @@ export const ensureLayout = Effect.gen(function* () {
         type text not null,
         identity jsonb,
         payload jsonb not null,
-        created timestamptz not null default now(),
-        changed timestamptz not null default now()
+        created timestamptz(3) not null default now(),
+        changed timestamptz(3) not null default now()
     )`
+    yield* sql`create index if not exists umwelt_object_created on umwelt_object (type, created)`
+    yield* sql`create index if not exists umwelt_object_changed on umwelt_object (type, changed)`
     // Identity of any size: the unique index holds its hash, since btree entries are limited; equality joins use the hash index.
     // `\` doubled, so the JSON text reaches bytea unchanged; `convert_to` is not immutable, so no index may use it.
     yield* sql`create unique index if not exists umwelt_object_identity on umwelt_object

@@ -28,36 +28,58 @@ export type ReadObject = {
 
 const alias = (sql: Sql, prefix: string, depth: number) => sql.literal(`${prefix}${depth}`)
 
-/** Sort keys: orderBy fields with JSON null as SQL null, numbers by numeric value, then list position, then Object ID. */
-type Key = { readonly of: (row: Fragment) => Fragment; readonly descending: boolean }
+/**
+ * Sort keys: orderBy fields with JSON null as SQL null, times by their column, numbers by numeric value, then list position, then Object ID.
+ * `nullable`: only these sort with `nulls last`; the rest keep the default, so a plain index serves both directions.
+ */
+type Key = { readonly of: (row: Fragment) => Fragment; readonly descending: boolean; readonly nullable: boolean }
+
+const keyOf = (sql: Sql, order: Order): Key => {
+    if ("column" in order)
+        return { of: (row) => sql`${row}.${sql.literal(order.column)}`, descending: order.descending, nullable: false }
+    const value = (row: Fragment) => sql`(${row}.payload -> ${order.field}::text)`
+    return {
+        of: (row) => (order.numeric ? numericOf(sql, value(row)) : sql`nullif(${value(row)}, 'null'::jsonb)`),
+        descending: order.descending,
+        nullable: true
+    }
+}
 
 const keysOf = (sql: Sql, orderBy: readonly Order[]): readonly Key[] => [
-    ...orderBy.map(({ field, descending, numeric }) => ({
-        of: (row: Fragment) =>
-            numeric
-                ? numericOf(sql, sql`(${row}.payload -> ${field}::text)`)
-                : sql`nullif(${row}.payload -> ${field}::text, 'null'::jsonb)`,
-        descending
-    })),
-    { of: (row) => sql`${row}.position`, descending: false },
-    { of: (row) => sql`${row}.id`, descending: false }
+    ...orderBy.map((order) => keyOf(sql, order)),
+    { of: (row) => sql`${row}.position`, descending: false, nullable: false },
+    { of: (row) => sql`${row}.id`, descending: false, nullable: false }
 ]
 
 const orderOf = (sql: Sql, keys: readonly Key[], row: Fragment) =>
-    sql.csv(keys.map((key) => sql`${key.of(row)} ${sql.literal(key.descending ? "desc" : "asc")} nulls last`))
+    sql.csv(
+        keys.map(
+            (key) =>
+                sql`${key.of(row)} ${sql.literal(`${key.descending ? "desc" : "asc"}${key.nullable ? " nulls last" : ""}`)}`
+        )
+    )
 
-/** Rows sorting after the cursor row: lexicographic over the keys, null last in both directions. */
-const afterOf = (sql: Sql, keys: readonly Key[], row: Fragment, cursor: Fragment) =>
-    sql.or(
+/**
+ * Rows sorting after the cursor: lexicographic over the keys, null last in both directions. Each key comes with the
+ * cursor's value of it, SQL null for an unknown cursor, so nothing follows that. A leading key that is never null also
+ * bounds the rows on its own, so an index on it seeks to the cursor instead of reading every row before it.
+ */
+const afterOf = (sql: Sql, keys: readonly (Key & { readonly cursor: Fragment })[], row: Fragment) => {
+    const sign = (key: Key, strict: boolean) => sql.literal(`${key.descending ? "<" : ">"}${strict ? "" : "="}`)
+    const seek = keys
+        .slice(0, 1)
+        .filter((key) => !key.nullable)
+        .map((key) => sql`${key.of(row)} ${sign(key, false)} ${key.cursor}`)
+    const after = sql.or(
         keys.map((key, index) =>
             sql.and([
-                ...keys
-                    .slice(0, index)
-                    .map((before) => sql`${before.of(row)} is not distinct from ${before.of(cursor)}`),
-                sql`(${key.of(cursor)} is not null and (${key.of(row)} is null or ${key.of(row)} ${sql.literal(key.descending ? "<" : ">")} ${key.of(cursor)}))`
+                ...keys.slice(0, index).map((before) => sql`${before.of(row)} is not distinct from ${before.cursor}`),
+                sql`(${key.cursor} is not null and (${key.of(row)} is null or ${key.of(row)} ${sign(key, true)} ${key.cursor}))`
             ])
         )
     )
+    return sql.and([...seek, after])
+}
 
 /** Object as JSON: Object ID, its times, stored payload, and included relations. */
 const objectOf = (scope: Scope, node: Node, depth: number): Built =>
@@ -137,19 +159,25 @@ const pageOf = (scope: Scope, node: Node, candidates: Fragment, page: Page, dept
     Effect.gen(function* () {
         const { sql, model } = scope
         const self = alias(sql, "o", depth)
-        const cursor = alias(sql, "c", depth)
         const keys = keysOf(sql, page.orderBy)
         const order = orderOf(sql, keys, self)
         const object = yield* objectOf(scope, node, depth)
-        const where =
-            page.where === undefined ? [] : [yield* compileWhere(model, node.type, page.where, sql`${self}.payload`)]
-        const from =
+        const where = page.where === undefined ? [] : [yield* compileWhere(model, node.type, page.where, self)]
+        const cursor = alias(sql, "c", depth)
+        const cursorOf = (key: Key) =>
+            sql`(select ${key.of(cursor)} from (${candidates}) ${cursor} where ${cursor}.id = ${page.cursor}::text)`
+        const after =
             page.cursor === undefined
-                ? sql`(${candidates}) ${self}`
-                : sql`(${candidates}) ${self} join (${candidates}) ${cursor} on ${cursor}.id = ${page.cursor}::text`
-        const after = page.cursor === undefined ? [] : [afterOf(sql, keys, self, cursor)]
+                ? []
+                : [
+                      afterOf(
+                          sql,
+                          keys.map((key) => ({ ...key, cursor: cursorOf(key) })),
+                          self
+                      )
+                  ]
         return sql`select ${object} as o, row_number() over (order by ${order}) as n
-            from ${from} where ${sql.and([...where, ...after])} order by ${order}
+            from (${candidates}) ${self} where ${sql.and([...where, ...after])} order by ${order}
             ${limit === undefined ? sql.literal("") : sql`limit ${limit}`}
             ${page.skip === undefined ? sql.literal("") : sql`offset ${page.skip}`}`
     })
